@@ -1,6 +1,6 @@
 [project]
 name = "fastapi-template"
-version = "0.1.0"
+version = "0.1.1"
 description = ""
 authors = [
     {name = "Alexander Gvozdev",email = "ad.gvozdev@severstal.com"}
@@ -29,6 +29,11 @@ dev = [
     "pytest-mock (>=3.14.0,<4.0.0)",
     "httpx (>=0.28.1,<0.29.0)"
 ]
+
+[[tool.poetry.source]]
+name = "corporate"
+url = "https://repo.severstal.severstalgroup.com/artifactory/api/pypi/pypi/simple"
+priority = "primary"
 
 [tool.isort]
 line_length = 79
