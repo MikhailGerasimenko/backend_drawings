@@ -265,16 +265,14 @@ service:
     protocol: TCP
 
 ingress:
-  - className: nginx
-    annotations: {}
-    hosts:
-      - host: fastapi-template-dev.kube.severstal.severstalgroup.com
-        paths:
-          - path: /
-            port: 8000
-            pathType: Prefix
-        tls:
-          common: true
+  enabled: true
+  className: nginx
+  annotations: {}
+  host: fastapi-template-dev.kube.severstal.severstalgroup.com
+  paths:
+    - path: /
+      serviceName: fastapi-template
+      port: 8000
 
 # -- Create PVC
 pvc: {}
