@@ -62,6 +62,8 @@ secrets:
 
   # -- Provide ssl certificate with key via ESO
   tls:
+    enabled: false
+    common: true
     # -- External secrets backend name for TLS
     backend: "eso-vault-backend"
 
@@ -265,7 +267,8 @@ service:
     protocol: TCP
 
 ingress:
-  enabled: true
+  enabled: false
+  tlsEnabled: false
   className: nginx
   annotations: {}
   host: fastapi-template-dev.kube.severstal.severstalgroup.com
@@ -273,6 +276,8 @@ ingress:
     - path: /
       serviceName: fastapi-template
       port: 8000
+  tls:
+    secretName: fastapi-template
 
 # -- Create PVC
 pvc: {}
