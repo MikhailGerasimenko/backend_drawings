@@ -1,4 +1,4 @@
-.PHONY: help install install-dev run run-otel run-prod run-prod-otel format format-check lint clean test test-cov \
+.PHONY: help install install-dev run run-otel run-otel-env run-prod run-prod-otel format format-check lint clean test test-cov \
 	check-runtime \
 	jaeger-up jaeger-down jaeger-down-v jaeger-logs jaeger-ps \
 	docker-build docker-run docker-stop docker-logs docker-shell docker-rm docker-clean
@@ -70,9 +70,16 @@ run: ## Запустить приложение в режиме разработ
 	@echo "$(CYAN)Запуск приложения в режиме разработки...$(NC)"
 	$(POETRY) run uvicorn $(APP) --reload --host $(HOST) --port $(PORT)
 
-run-otel: ## Запустить приложение с OpenTelemetry (dev, hot reload)
+run-otel: ## Запустить приложение с OpenTelemetry
 	@echo "$(CYAN)Запуск приложения с OpenTelemetry (dev)...$(NC)"
-	$(POETRY) run opentelemetry-instrument uvicorn $(APP) --reload --host $(HOST) --port $(PORT)
+	$(POETRY) run opentelemetry-instrument uvicorn $(APP) --host $(HOST) --port $(PORT)
+
+run-otel-env: ## Запустить OpenTelemetry с автоподгрузкой переменных из .env
+	@echo "$(CYAN)Запуск приложения с OpenTelemetry (dev, .env)...$(NC)"
+	@set -a; \
+	if [ -f .env ]; then . ./.env; else echo "$(YELLOW)Файл .env не найден, запуск без него$(NC)"; fi; \
+	set +a; \
+	$(POETRY) run opentelemetry-instrument uvicorn $(APP) --host $(HOST) --port $(PORT)
 
 run-prod: ## Запустить приложение в production режиме (с Gunicorn)
 	@echo "$(CYAN)Запуск приложения в production режиме...$(NC)"

@@ -70,7 +70,7 @@ make install-dev    # Установить зависимости (включа�
 Создайте файл `.env` на основе `.env.example` (если нужно изменить настройки по умолчанию):
 
 ```bash
-APP_NAME=FastAPI Template
+APP_NAME="FastAPI Template"
 APP_VERSION=1.0.0
 DEBUG=false
 HOST=0.0.0.0
@@ -163,7 +163,39 @@ make jaeger-up
 - UI: [http://localhost:16686](http://localhost:16686)
 - OTLP HTTP: `http://localhost:4318` (как в `.env.example`)
 
-Дальше скопируйте `OTEL_*` из `.env.example` в `.env`, затем `make run-otel`, откройте API и в Jaeger выберите сервис `OTEL_SERVICE_NAME` (по умолчанию `fastapi-template`).
+Дальше скопируйте `OTEL_*` из `.env.example` в `.env` и запускайте приложение одним из двух способов:
+
+1) Разовый запуск с явными OTEL переменными:
+
+```bash
+OTEL_SERVICE_NAME=fastapi-template \
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 \
+OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf \
+OTEL_TRACES_EXPORTER=otlp \
+OTEL_TRACES_SAMPLER=always_on \
+OTEL_METRICS_EXPORTER=none \
+OTEL_LOGS_EXPORTER=none \
+make run-otel
+```
+
+2) Подгрузить `.env` в текущую shell-сессию и запускать через Makefile:
+
+```bash
+set -a
+source .env
+set +a
+make run-otel
+```
+
+3) Использовать отдельную цель Makefile с автоподгрузкой `.env`:
+
+```bash
+make run-otel-env
+```
+
+После запуска откройте API (например, `/api/v1/health`) и в Jaeger выберите сервис `OTEL_SERVICE_NAME` (по умолчанию `fastapi-template`).
+
+Если в Jaeger отображается `unknown_service`, значит не подхватился `OTEL_SERVICE_NAME`: проверьте, что shell загрузила `.env`, и что значения с пробелами в `.env` указаны в кавычках (например, `APP_NAME="FastAPI Template"`).
 
 ```bash
 make jaeger-down   # остановить Jaeger; том с Badger сохраняется
