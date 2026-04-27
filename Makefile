@@ -1,4 +1,26 @@
-.PHONY: help install install-dev run run-prod format format-check lint clean test test-cov docker-build docker-run docker-stop docker-logs docker-shell docker-rm docker-clean
+.PHONY: help install install-dev run run-otel run-prod run-prod-otel format format-check lint clean test test-cov \
+	check-runtime \
+	jaeger-up jaeger-down jaeger-down-v jaeger-logs jaeger-ps \
+	docker-build docker-run docker-stop docker-logs docker-shell docker-rm docker-clean
+
+# Container runtime: prefer Docker if the daemon responds, else Podman.
+# `docker info` avoids picking the docker CLI when only the binary is installed
+# and the real runtime is Podman (common on macOS).
+DOCKER := $(shell docker info >/dev/null 2>&1 && command -v docker)
+PODMAN := $(shell command -v podman 2>/dev/null)
+
+ifdef DOCKER
+  COMPOSE_CMD := docker compose
+  RUN_CMD := docker
+else
+  ifdef PODMAN
+    COMPOSE_CMD := podman compose
+    RUN_CMD := podman
+  else
+    COMPOSE_CMD :=
+    RUN_CMD :=
+  endif
+endif
 
 # Переменные
 PYTHON := python
@@ -10,16 +32,31 @@ DOCKER_IMAGE := fastapi-template
 DOCKER_CONTAINER := fastapi-template
 DOCKER_TAG := latest
 
-# Цвета для вывода
-CYAN := \033[0;36m
-GREEN := \033[0;32m
-YELLOW := \033[0;33m
-NC := \033[0m # No Color
+JAEGER_COMPOSE_FILE := docker/docker-compose.jaeger.yml
+
+# Colors for pretty output (ANSI)
+DIM     := \033[2m
+BOLD    := \033[1m
+RESET   := \033[0m
+CYAN    := \033[0;36m
+BLUE    := \033[0;34m
+MAGENTA := \033[0;35m
+GREEN   := \033[0;32m
+YELLOW  := \033[1;33m
+WHITE   := \033[1;37m
 
 help: ## Показать справку по командам
-	@echo "$(CYAN)Доступные команды:$(NC)"
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  $(GREEN)%-15s$(NC) %s\n", $$1, $$2}'
+	@echo ""
+	@echo "$(BOLD)$(MAGENTA)  FastAPI Template — Makefile$(RESET)"
+	@echo "$(BLUE)  ═══════════════════════════$(RESET)"
+	@echo ""
+	@echo "$(DIM)  Usage:$(RESET) $(WHITE)make$(RESET) $(CYAN)<target>$(RESET)"
+	@echo ""
+	@awk '/^#---/ { sub(/^#---[ \t]*/,""); sub(/[ \t]*---[ \t]*$$/,""); printf "$(BOLD)$(CYAN)  %s$(RESET)\n", $$0; next } /^[a-zA-Z0-9_-]+:.*## / { match($$0,/^[a-zA-Z0-9_-]+/); t=substr($$0,RSTART,RLENGTH); match($$0,/## /); d=substr($$0,RSTART+RLENGTH); printf "    $(YELLOW)%-20s$(RESET) $(DIM)%s$(RESET)\n", t, d }' $(MAKEFILE_LIST)
+	@printf "    $(YELLOW)%-20s$(RESET) $(DIM)%s$(RESET)\n" "help" "Show this help message"
+	@echo ""
 
+#--- Setup ---
 install: ## Установить зависимости проекта
 	@echo "$(CYAN)Установка зависимостей...$(NC)"
 	$(POETRY) install --no-root
@@ -28,14 +65,24 @@ install-dev: ## Установить зависимости проекта (вк
 	@echo "$(CYAN)Установка зависимостей (включая dev)...$(NC)"
 	$(POETRY) install --no-root --with dev
 
+#--- Run ---
 run: ## Запустить приложение в режиме разработки (с hot reload)
 	@echo "$(CYAN)Запуск приложения в режиме разработки...$(NC)"
 	$(POETRY) run uvicorn $(APP) --reload --host $(HOST) --port $(PORT)
+
+run-otel: ## Запустить приложение с OpenTelemetry (dev, hot reload)
+	@echo "$(CYAN)Запуск приложения с OpenTelemetry (dev)...$(NC)"
+	$(POETRY) run opentelemetry-instrument uvicorn $(APP) --reload --host $(HOST) --port $(PORT)
 
 run-prod: ## Запустить приложение в production режиме (с Gunicorn)
 	@echo "$(CYAN)Запуск приложения в production режиме...$(NC)"
 	$(POETRY) run gunicorn $(APP) -c config/gunicorn_conf.py
 
+run-prod-otel: ## Запустить production с OpenTelemetry (Gunicorn)
+	@echo "$(CYAN)Запуск production с OpenTelemetry...$(NC)"
+	$(POETRY) run opentelemetry-instrument gunicorn $(APP) -c config/gunicorn_conf.py
+
+#--- Quality ---
 format: ## Форматировать код (black + isort)
 	@echo "$(CYAN)Форматирование кода...$(NC)"
 	$(POETRY) run black app
@@ -66,6 +113,7 @@ test-cov: ## Run tests with coverage
 	@echo "$(CYAN)Running tests with coverage...$(NC)"
 	$(POETRY) run pytest --cov=app --cov-report=term-missing
 
+#--- Utilities ---
 shell: ## Открыть Python shell с загруженным окружением
 	@echo "$(CYAN)Запуск Python shell...$(NC)"
 	$(POETRY) run python
@@ -78,53 +126,86 @@ lock: ## Обновить poetry.lock
 	@echo "$(CYAN)Обновление poetry.lock...$(NC)"
 	$(POETRY) lock --no-update
 
+#--- Runtime / Jaeger ---
+check-runtime: ## Показать выбранный container runtime
+	@if [ -n "$(RUN_CMD)" ]; then \
+		echo "$(CYAN)Container runtime:$(NC) $(GREEN)$(COMPOSE_CMD)$(NC) / $(RUN_CMD)"; \
+	else \
+		echo "$(YELLOW)Neither Docker (with a running daemon) nor Podman found.$(NC)"; \
+		echo "$(YELLOW)Install Docker/Podman or start Docker daemon to run container targets.$(NC)"; \
+		exit 1; \
+	fi
+
+jaeger-up: check-runtime ## Поднять локальный Jaeger (OTLP :4318, UI :16686)
+	@echo "$(CYAN)Запуск Jaeger...$(NC)"
+	$(COMPOSE_CMD) -f $(JAEGER_COMPOSE_FILE) up -d
+	@echo "$(GREEN)Jaeger UI: http://localhost:16686$(NC)"
+	@echo "$(CYAN)OTLP HTTP для OTEL: http://localhost:4318$(NC)"
+
+jaeger-down: ## Остановить Jaeger (том с трейсами сохраняется)
+	@echo "$(CYAN)Остановка Jaeger...$(NC)"
+	$(COMPOSE_CMD) -f $(JAEGER_COMPOSE_FILE) down
+	@echo "$(GREEN)Готово$(NC)"
+
+jaeger-down-v: ## Остановить Jaeger и удалить том с трейсами
+	@echo "$(CYAN)Остановка Jaeger и удаление тома с трейсами...$(NC)"
+	$(COMPOSE_CMD) -f $(JAEGER_COMPOSE_FILE) down -v
+	@echo "$(GREEN)Готово$(NC)"
+
+jaeger-logs: ## Логи контейнера Jaeger
+	$(COMPOSE_CMD) -f $(JAEGER_COMPOSE_FILE) logs -f
+
+jaeger-ps: ## Статус Jaeger
+	$(COMPOSE_CMD) -f $(JAEGER_COMPOSE_FILE) ps
+
 show-env: ## Показать текущие переменные окружения
 	@echo "$(CYAN)Переменные окружения:$(NC)"
-	@env | grep -E "(APP_|DEBUG|HOST|PORT|LOG_)" || echo "Переменные окружения не найдены"
+	@env | grep -E "(APP_|DEBUG|HOST|PORT|LOG_|OTEL_)" || echo "Переменные окружения не найдены"
 
-docker-build: ## Собрать Docker образ
-	@echo "$(CYAN)Сборка Docker образа...$(NC)"
-	docker build -t $(DOCKER_IMAGE):$(DOCKER_TAG) .
-	@echo "$(GREEN)Docker образ собран: $(DOCKER_IMAGE):$(DOCKER_TAG)$(NC)"
+#--- Container app lifecycle ---
+docker-build: check-runtime ## Собрать образ контейнера
+	@echo "$(CYAN)Сборка образа...$(NC)"
+	$(RUN_CMD) build -t $(DOCKER_IMAGE):$(DOCKER_TAG) .
+	@echo "$(GREEN)Образ: $(DOCKER_IMAGE):$(DOCKER_TAG)$(NC)"
 
-docker-run: ## Запустить Docker контейнер
-	@echo "$(CYAN)Запуск Docker контейнера...$(NC)"
+docker-run: check-runtime ## Запустить контейнер приложения
+	@echo "$(CYAN)Запуск контейнера...$(NC)"
 	@if [ -f .env ]; then \
-		docker run -d \
+		$(RUN_CMD) run -d \
 			--name $(DOCKER_CONTAINER) \
 			-p $(PORT):8000 \
 			--env-file .env \
 			$(DOCKER_IMAGE):$(DOCKER_TAG); \
 	else \
-		docker run -d \
+		$(RUN_CMD) run -d \
 			--name $(DOCKER_CONTAINER) \
 			-p $(PORT):8000 \
 			$(DOCKER_IMAGE):$(DOCKER_TAG); \
 	fi
 	@echo "$(GREEN)Контейнер запущен: $(DOCKER_CONTAINER)$(NC)"
-	@echo "$(CYAN)Приложение доступно по адресу: http://localhost:$(PORT)$(NC)"
+	@echo "$(CYAN)Приложение: http://localhost:$(PORT)$(NC)"
 
-docker-stop: ## Остановить Docker контейнер
-	@echo "$(CYAN)Остановка Docker контейнера...$(NC)"
-	docker stop $(DOCKER_CONTAINER) 2>/dev/null || echo "$(YELLOW)Контейнер не запущен$(NC)"
+docker-stop: check-runtime ## Остановить контейнер приложения
+	@echo "$(CYAN)Остановка контейнера...$(NC)"
+	$(RUN_CMD) stop $(DOCKER_CONTAINER) 2>/dev/null || echo "$(YELLOW)Контейнер не запущен$(NC)"
 	@echo "$(GREEN)Контейнер остановлен$(NC)"
 
-docker-logs: ## Показать логи Docker контейнера
-	@echo "$(CYAN)Логи Docker контейнера:$(NC)"
-	docker logs -f $(DOCKER_CONTAINER)
+docker-logs: check-runtime ## Логи контейнера приложения
+	@echo "$(CYAN)Логи контейнера:$(NC)"
+	$(RUN_CMD) logs -f $(DOCKER_CONTAINER)
 
-docker-shell: ## Войти в shell Docker контейнера
-	@echo "$(CYAN)Вход в Docker контейнер...$(NC)"
-	docker exec -it $(DOCKER_CONTAINER) /bin/bash
+docker-shell: check-runtime ## Shell в контейнере приложения
+	@echo "$(CYAN)Вход в контейнер...$(NC)"
+	$(RUN_CMD) exec -it $(DOCKER_CONTAINER) /bin/bash
 
-docker-rm: ## Удалить Docker контейнер
-	@echo "$(CYAN)Удаление Docker контейнера...$(NC)"
-	docker rm $(DOCKER_CONTAINER) 2>/dev/null || echo "$(YELLOW)Контейнер не существует$(NC)"
+docker-rm: check-runtime ## Удалить контейнер приложения
+	@echo "$(CYAN)Удаление контейнера...$(NC)"
+	$(RUN_CMD) rm $(DOCKER_CONTAINER) 2>/dev/null || echo "$(YELLOW)Контейнер не существует$(NC)"
 	@echo "$(GREEN)Контейнер удален$(NC)"
 
-docker-clean: docker-stop docker-rm ## Остановить и удалить Docker контейнер
-	@echo "$(GREEN)Docker контейнер очищен$(NC)"
+docker-clean: docker-stop docker-rm ## Остановить и удалить контейнер
+	@echo "$(GREEN)Контейнер очищен$(NC)"
 
-docker-up: docker-clean docker-build docker-run ## Собрать и запустить Docker контейнер
-	@echo "$(GREEN)Docker контейнер запущен$(NC)"
-	@echo "$(CYAN)Приложение доступно по адресу: http://localhost:$(PORT)$(NC)"
+docker-up: docker-clean docker-build docker-run ## Собрать и запустить контейнер
+	@echo "$(GREEN)Контейнер запущен$(NC)"
+	@echo "$(CYAN)Приложение: http://localhost:$(PORT)$(NC)"
