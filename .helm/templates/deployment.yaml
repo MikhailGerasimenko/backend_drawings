@@ -94,6 +94,10 @@ spec:
         {{- end }}
         envFrom:
         {{- if and (eq .Values.secrets.enabled true) (ne .Values.secrets.env false) }}
+        {{- if .Values.secrets.platformCommon.enabled }}
+          - secretRef:
+              name: {{ $fullName }}-platform-common
+        {{- end }}
           - secretRef:
               name: {{ $fullName }}-secret
         {{- if .Values.secrets.common }}
