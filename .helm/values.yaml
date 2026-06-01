@@ -41,12 +41,6 @@ secrets:
   # -- If `true`, creates a common secret for multiple services usage. Vault path must be projectNamespace/common/env/$env
   common: ""
 
-  # -- Platform-common secrets (OTEL/Jaeger)
-  platformCommon:
-    enabled: false
-    path: ""
-    refreshInterval: "5m"
-
     # -- Additional annotations to common secret
     # annotations: {}
     #   "helm.sh/hook": pre-install
@@ -65,6 +59,12 @@ secrets:
     #   path: /etc/krb5.conf
     # - name: configmap.yaml
     #   path: /etc/configmap.yaml
+
+  # -- Platform-common secrets (OTEL/Jaeger)
+  platformCommon:
+    enabled: false
+    path: ""
+    refreshInterval: "5m"
 
   # -- Provide ssl certificate with key via ESO
   tls:

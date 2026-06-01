@@ -16,11 +16,13 @@ metadata:
   {{- if .Values.deployment.reloadOnChange.enabled }}
   {{- if and .Values.deployment.reloadOnChange.configMapOnChange .Values.deployment.reloadOnChange.secretOnChange }}
     configmap.reloader.stakater.com/reload: "{{ .Values.deployment.reloadOnChange.configMapOnChange }}"
-    secret.reloader.stakater.com/reload: "{{ .Values.deployment.reloadOnChange.secretOnChange }}"
+    secret.reloader.stakater.com/reload: "{{ .Values.deployment.reloadOnChange.secretOnChange }}{{ if .Values.secrets.platformCommon.enabled }},{{ $fullName }}-platform-common{{ end }}"
     {{- else if .Values.deployment.reloadOnChange.configMapOnChange }}
     configmap.reloader.stakater.com/reload: "{{ .Values.deployment.reloadOnChange.configMapOnChange }}"
     {{- else if .Values.deployment.reloadOnChange.secretOnChange }}
-    secret.reloader.stakater.com/reload: "{{ .Values.deployment.reloadOnChange.secretOnChange }}"
+    secret.reloader.stakater.com/reload: "{{ .Values.deployment.reloadOnChange.secretOnChange }}{{ if .Values.secrets.platformCommon.enabled }},{{ $fullName }}-platform-common{{ end }}"
+    {{- else if .Values.secrets.platformCommon.enabled }}
+    secret.reloader.stakater.com/reload: "{{ $fullName }}-platform-common,{{ $fullName }}-secret"
     {{- else }}
     reloader.stakater.com/auto: "true"
   {{- end }}
