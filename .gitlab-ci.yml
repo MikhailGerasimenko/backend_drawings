@@ -1,5 +1,5 @@
 include:
-  - project: '${SSS_V3_CI_TEMPLATE_PROJECT}'
+  - project: '${SSS_CI_TEMPLATE_PROJECT}'
     file:
       - '/python.yml'
 
