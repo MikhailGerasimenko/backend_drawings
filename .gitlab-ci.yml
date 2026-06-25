@@ -6,4 +6,3 @@ include:
 variables:
   SKIP_PUBLISH: "true"
   DEPLOYMENT_ENVIRONMENT: dev
-  DEPLOY_OPTIONS: "--force"
