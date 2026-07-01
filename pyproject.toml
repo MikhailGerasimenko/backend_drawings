@@ -23,8 +23,8 @@ dependencies = [
     # File handling
     "python-multipart (>=0.0.12,<1)",
     # PDF generation
-    "reportlab (>=4.2.0,<5)",
-    "pymupdf (>=1.24.0,<2)",
+    "reportlab (>=4.2.0,<5) ; python_version<'3.14'",
+    "pymupdf (>=1.24.0,<2) ; python_version<'3.14'",
     # Monitoring
     "sentry-sdk[fastapi] (>=2.19.0,<3)",
     # Security / Auth
