@@ -52,3 +52,6 @@ htmlcov/
 
 # Qwen Code
 .qwen/
+
+# CI/CD
+.gitlab-ci.yml
