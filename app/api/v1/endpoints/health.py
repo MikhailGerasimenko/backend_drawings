@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from app.api.v1.schemas.health import HealthResponse
+from app.core.config import settings
 from app.core.utils import get_current_timestamp
 
 router = APIRouter()
@@ -14,5 +15,5 @@ async def health_check():
     return HealthResponse(
         status="healthy",
         timestamp=get_current_timestamp(),
-        service="FastAPI Template",
+        service=settings.app_name,
     )

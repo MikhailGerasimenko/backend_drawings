@@ -1,3 +1,6 @@
+from contextlib import asynccontextmanager
+from datetime import datetime
+
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -10,13 +13,30 @@ from app.core.handlers import (
     validation_exception_handler,
 )
 from app.core.middleware import RequestIDMiddleware
+from app.core.sentry import init_sentry
+from app.core.db import init_db
+
+
+@asynccontextmanager
+async def lifespan(application: FastAPI):  # type: ignore[name-defined]
+    """Application lifespan: startup and shutdown events."""
+    # Startup
+    application.state.start_time = _get_current_timestamp()
+    await init_db()
+    yield
+    # Shutdown
+    application.state.start_time = None
+
 
 app = FastAPI(
     title=settings.app_name,
     description="Template project with health check and hello world endpoints",
     version=settings.app_version,
     debug=settings.debug,
+    lifespan=lifespan,
 )
+
+init_sentry(app)
 
 app.add_middleware(RequestIDMiddleware)
 
@@ -35,3 +55,12 @@ async def root():
         "version": settings.app_version,
         "docs": "/docs",
     }
+
+
+def _get_current_timestamp() -> str:
+    """Return current ISO timestamp with timezone."""
+    from pytz import timezone
+
+    return str(
+        datetime.now(timezone(settings.time_zone)).isoformat()
+    )
