@@ -15,7 +15,23 @@ dependencies = [
     "pytz (>=2025.2,<2026.0)",
     "opentelemetry-distro (>=0.48b0,<1.0.0)",
     "opentelemetry-exporter-otlp (>=1.28.0,<2.0.0)",
-    "opentelemetry-instrumentation-fastapi (>=0.48b0,<1.0.0)"
+    "opentelemetry-instrumentation-fastapi (>=0.48b0,<1.0.0)",
+    # Database
+    "sqlalchemy (>=2.0.36,<3)",
+    "psycopg2-binary (>=2.9.10,<3)",
+    "alembic (>=1.14.0,<2)",
+    # File handling
+    "python-multipart (>=0.0.12,<1)",
+    # PDF generation
+    "reportlab (>=4.2.0,<5)",
+    "pymupdf (>=1.24.0,<2)",
+    # Monitoring
+    "sentry-sdk[fastapi] (>=2.19.0,<3)",
+    # Security / Auth
+    "passlib[bcrypt] (>=1.7.4,<2)",
+    "python-jose[cryptography] (>=3.3.0,<4)",
+    # Async database driver
+    "asyncpg (>=0.29.0,<1)",
 ]
 
 

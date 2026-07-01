@@ -1,5 +1,7 @@
 import pytest
 
+from app.core.config import settings
+
 
 @pytest.mark.unit
 def test_health_endpoint(client):
@@ -9,7 +11,7 @@ def test_health_endpoint(client):
     data = response.json()
     assert data["status"] == "healthy"
     assert "timestamp" in data
-    assert data["service"] == "FastAPI Template"
+    assert data["service"] == settings.app_name
 
 
 @pytest.mark.unit
