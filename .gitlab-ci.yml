@@ -6,3 +6,7 @@ include:
 variables:
   SKIP_PUBLISH: "true"
   DEPLOYMENT_ENVIRONMENT: dev
+  
+deploy:
+  before_script:
+    - kubectl -n ${NAMESPACE} delete svc ${CI_PROJECT_NAME_SLUG} --ignore-not-found=true || true
