@@ -51,15 +51,23 @@ deploy:
     - kubectl -n ${NAMESPACE} delete svc ${CI_PROJECT_NAME_SLUG} --ignore-not-found=true
     - kubectl -n ${NAMESPACE} delete deployment ${CI_PROJECT_NAME_SLUG} --ignore-not-found=true
     - helm -n ${NAMESPACE} uninstall ${CI_PROJECT_NAME_SLUG} 2>/dev/null || true
+    - echo "=== DEBUG ==="
+    - echo "NAMESPACE=${NAMESPACE}"
+    - echo "HELM_PATH=${HELM_PATH}"
+    - echo "CI_PROJECT_NAME_SLUG=${CI_PROJECT_NAME_SLUG}"
+    - echo "IMAGE_TAG=${IMAGE_TAG}"
+    - helm -n ${NAMESPACE} list
+    - kubectl -n ${NAMESPACE} get pods
     - |
       helm install ${CI_PROJECT_NAME_SLUG} -n ${NAMESPACE} ${HELM_PATH} \
         --set env=${CI_ENVIRONMENT_SLUG} \
         --set-string image.tag=${IMAGE_TAG} \
         --set-string global.image.tag=${IMAGE_TAG} \
         --set-string projectPath=${CI_PROJECT_PATH} \
-        --wait --timeout ${DEPLOY_TIMEOUT} ${DEPLOY_OPTIONS}
-    - wget https://repo.severstal.severstalgroup.com/artifactory/public/kubernetes/itop-data-config-map.yaml
-    - envsubst < itop-data-config-map.yaml | kubectl --insecure-skip-tls-verify apply -f -
+        --timeout 60s ${DEPLOY_OPTIONS}
+    - sleep 5
+    - kubectl -n ${NAMESPACE} get pods
+    - kubectl -n ${NAMESPACE} logs deployment/${CI_PROJECT_NAME_SLUG} --tail=30 || true
 
 deploy:prod:
   extends: .deploy_service
