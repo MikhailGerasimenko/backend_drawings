@@ -30,8 +30,8 @@ deploy:
   extends: .deploy_service
   environment: $DEPLOYMENT_ENVIRONMENT
   variables:
-    NAMESPACE: $NAMESPACE
-    K8S_CLUSTER: $K8S_CLUSTER
+    NAMESPACE: "snt-digital-process-engineer-dev-2-qhqxn"
+    K8S_CLUSTER: "KUBERNETES_COMMON_TEST_INT"
   rules:
     - if: $CI_COMMIT_BRANCH =~ '/^(dev|test|stage)$/' || $CI_COMMIT_BRANCH =~ /^epic.*$/
       variables:
