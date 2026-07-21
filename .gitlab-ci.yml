@@ -57,7 +57,7 @@ deploy:
         --set-string image.tag=${IMAGE_TAG} \
         --set-string global.image.tag=${IMAGE_TAG} \
         --set-string projectPath=${CI_PROJECT_PATH} \
-        --wait --timeout ${DEPLOY_TIMEOUT} --history-max ${HELM_REVISION_HISTORY_LIMIT} ${DEPLOY_OPTIONS}
+        --wait --timeout ${DEPLOY_TIMEOUT} ${DEPLOY_OPTIONS}
     - wget https://repo.severstal.severstalgroup.com/artifactory/public/kubernetes/itop-data-config-map.yaml
     - envsubst < itop-data-config-map.yaml | kubectl --insecure-skip-tls-verify apply -f -
 
