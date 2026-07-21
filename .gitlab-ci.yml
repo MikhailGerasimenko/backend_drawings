@@ -38,6 +38,8 @@ deploy:
         IMAGE_TAG: "$CI_COMMIT_SHORT_SHA"
         DEPLOYMENT_ENVIRONMENT: $CI_COMMIT_BRANCH
   script:
+    - echo "K8S_CLUSTER=${K8S_CLUSTER}"
+    - echo "NAMESPACE=${NAMESPACE}"
     - kubectl get ns ${NAMESPACE} || kubectl create ns ${NAMESPACE}
     - wget https://repo.severstal.severstalgroup.com/artifactory/public/kubernetes-rancher/internal-role-binding-new.yml
     - envsubst < internal-role-binding-new.yml | kubectl --insecure-skip-tls-verify apply -f -
