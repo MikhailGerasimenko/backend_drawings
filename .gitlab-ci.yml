@@ -41,25 +41,23 @@ deploy:
     - kubectl get ns ${NAMESPACE} || kubectl create ns ${NAMESPACE}
     - wget https://repo.severstal.severstalgroup.com/artifactory/public/kubernetes-rancher/internal-role-binding-new.yml
     - envsubst < internal-role-binding-new.yml | kubectl --insecure-skip-tls-verify apply -f -
-    - kubectl -n ${NAMESPACE} create secret docker-registry container-registry
-      --docker-server=${CI_REGISTRY}
-      --docker-username=${CI_DEPLOY_USER}
-      --docker-password=${CI_DEPLOY_PASSWORD} 2>/dev/null || true
-    - if [[ "${HELM_VALUES_ENVSUBST}" == false  ]] ; 
-        then 
-         echo 'Helm values envsubst disabled!';
-        else 
-         envsubst < $HELM_VALUES_PATH/$HELM_VALUES_FILE > $HELM_VALUES_PATH/$HELM_VALUES_FILE.tmp && mv $HELM_VALUES_PATH/$HELM_VALUES_FILE.tmp $HELM_VALUES_PATH/$HELM_VALUES_FILE; 
-        fi
-    - kubectl -n ${NAMESPACE} delete svc ${CI_PROJECT_NAME_SLUG} --ignore-not-found=true || true
-     - helm -n ${NAMESPACE} uninstall ${CI_PROJECT_NAME_SLUG} --wait 2>/dev/null || true
-     - helm install ${CI_PROJECT_NAME_SLUG} -n ${NAMESPACE}
-      ${HELM_PATH}
-      --set env=${CI_ENVIRONMENT_SLUG}
-      --set-string image.tag=${IMAGE_TAG}
-      --set-string global.image.tag=${IMAGE_TAG}
-      --set-string projectPath=${CI_PROJECT_PATH}
-      --wait --timeout ${DEPLOY_TIMEOUT} --history-max ${HELM_REVISION_HISTORY_LIMIT} ${DEPLOY_OPTIONS}
+    - kubectl -n ${NAMESPACE} create secret docker-registry container-registry --docker-server=${CI_REGISTRY} --docker-username=${CI_DEPLOY_USER} --docker-password=${CI_DEPLOY_PASSWORD} 2>/dev/null || true
+    - |
+      if [[ "${HELM_VALUES_ENVSUBST}" == false ]]; then
+        echo 'Helm values envsubst disabled!'
+      else
+        envsubst < $HELM_VALUES_PATH/$HELM_VALUES_FILE > $HELM_VALUES_PATH/$HELM_VALUES_FILE.tmp && mv $HELM_VALUES_PATH/$HELM_VALUES_FILE.tmp $HELM_VALUES_PATH/$HELM_VALUES_FILE
+      fi
+    - kubectl -n ${NAMESPACE} delete svc ${CI_PROJECT_NAME_SLUG} --ignore-not-found=true
+    - kubectl -n ${NAMESPACE} delete deployment ${CI_PROJECT_NAME_SLUG} --ignore-not-found=true
+    - helm -n ${NAMESPACE} uninstall ${CI_PROJECT_NAME_SLUG} 2>/dev/null || true
+    - |
+      helm install ${CI_PROJECT_NAME_SLUG} -n ${NAMESPACE} ${HELM_PATH} \
+        --set env=${CI_ENVIRONMENT_SLUG} \
+        --set-string image.tag=${IMAGE_TAG} \
+        --set-string global.image.tag=${IMAGE_TAG} \
+        --set-string projectPath=${CI_PROJECT_PATH} \
+        --wait --timeout ${DEPLOY_TIMEOUT} --history-max ${HELM_REVISION_HISTORY_LIMIT} ${DEPLOY_OPTIONS}
     - wget https://repo.severstal.severstalgroup.com/artifactory/public/kubernetes/itop-data-config-map.yaml
     - envsubst < itop-data-config-map.yaml | kubectl --insecure-skip-tls-verify apply -f -
 
