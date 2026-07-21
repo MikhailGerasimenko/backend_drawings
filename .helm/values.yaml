@@ -131,7 +131,7 @@ deployment:
       maxSurge: 25%
 
   # -- Command to run in main container
-  command: "" #['sh', '-c', 'binary_package']
+  command: ['gunicorn', '-w', '2', '-k', 'uvicorn.workers.UvicornWorker', '--bind', '0.0.0.0:8000', '--timeout', '60', 'app.main:app']
 
   ports:
   - containerPort: 8000
