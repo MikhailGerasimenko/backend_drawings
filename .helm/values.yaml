@@ -90,7 +90,9 @@ deployment:
   replicas: 1
 
   # -- Fixed Environment variable
-  env: []
+  env:
+    - name: WEB_CONCURRENCY
+      value: "2"
   # - name: DOTNET_CLI_TELEMETRY_OPTOUT
   #   value: "1"
   # - name: DOTNET_USE_POLLING_FILE_WATCHER
@@ -165,17 +167,17 @@ deployment:
 
   resources:
     limits:
-      memory: 512Mi
+      memory: 1Gi
       cpu: 1
     requests:
-      memory: 128Mi
+      memory: 256Mi
       cpu: 0.1
 
   probes:
     livenessProbe:
       failureThreshold: 4
       httpGet:
-        path: /health
+        path: /api/v1/health
         port: 8000
         scheme: HTTP
       initialDelaySeconds: 20
@@ -185,7 +187,7 @@ deployment:
     readinessProbe:
       failureThreshold: 2
       httpGet:
-        path: /health
+        path: /api/v1/health
         port: 8000
         scheme: HTTP
       initialDelaySeconds: 10
