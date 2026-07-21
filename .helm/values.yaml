@@ -175,7 +175,7 @@ deployment:
     livenessProbe:
       failureThreshold: 4
       httpGet:
-        path: /api/v1/health
+        path: /health
         port: 8000
         scheme: HTTP
       initialDelaySeconds: 20
@@ -185,7 +185,7 @@ deployment:
     readinessProbe:
       failureThreshold: 2
       httpGet:
-        path: /api/v1/health
+        path: /health
         port: 8000
         scheme: HTTP
       initialDelaySeconds: 10
