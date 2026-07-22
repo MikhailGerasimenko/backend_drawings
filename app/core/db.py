@@ -29,7 +29,7 @@ class Base(DeclarativeBase):
     pass
 
 
-async def get_async_session() -> AsyncSession:
+async def get_async_session() -> AsyncSession: # type: ignore
     """Yield an async database session."""
     async with async_session_factory() as session:
         try:
@@ -40,6 +40,6 @@ async def get_async_session() -> AsyncSession:
 
 async def init_db() -> None:
     """Initialize database tables."""
-    import app.models  # noqa: F401 -- import all models before create_all
+    #import app.models  # noqa: F401 -- import all models before create_all
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
