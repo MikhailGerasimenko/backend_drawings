@@ -37,6 +37,7 @@ WORKDIR /app
 
 COPY pyproject.toml poetry.lock README.md ./
 
+# Cache bust: force poetry reinstall on 2026-07-22
 RUN poetry install --no-root --no-interaction --without dev && \
     pip uninstall -y poetry
 
