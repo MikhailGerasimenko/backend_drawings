@@ -6,3 +6,4 @@ include:
 variables:
   SKIP_PUBLISH: "true"
   DEPLOYMENT_ENVIRONMENT: "dev-2"
+  HELM_EXTRA_FLAGS: --set secrets.platformCommon.enabled=false
