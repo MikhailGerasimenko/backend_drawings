@@ -1,19 +1,22 @@
+"""Health check endpoints."""
+
 from fastapi import APIRouter
 
-from app.api.v1.schemas.health import HealthResponse
 from app.core.config import settings
-from app.core.utils import get_current_timestamp
 
-router = APIRouter()
+router = APIRouter(tags=["health"])
 
 
-@router.get("/health", response_model=HealthResponse)
-async def health_check():
-    """
-    Health check endpoint to verify the service is running.
-    """
-    return HealthResponse(
-        status="healthy",
-        timestamp=get_current_timestamp(),
-        service=settings.app_name,
-    )
+@router.get("/health")
+def health():
+    return {"status": "ok"}
+
+
+@router.get("/api/v1/health")
+def api_v1_health():
+    return {
+        "status": "ok",
+        "version": "0.7.0-metrics",
+        "database_configured": bool(settings.database_url),
+        "sentry": bool(settings.sentry_dsn),
+    }

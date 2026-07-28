@@ -65,6 +65,8 @@ COPY --from=builder /usr/local/lib/python3.13/site-packages /usr/local/lib/pytho
 COPY --from=builder /usr/local/bin/ /usr/local/bin/
 RUN rm -f /usr/local/bin/poetry*
 
+COPY alembic.ini .
+COPY alembic ./alembic
 COPY app/ ./app/
 COPY config/ ./config/
 
@@ -83,6 +85,9 @@ EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8000/api/v1/health || exit 1
+
+# sh -c: миграции
+CMD ["sh", "-c", "alembic upgrade head"]
 
 # Zero-code tracing: opentelemetry-instrument wraps the server and exports via OTLP.
 CMD ["opentelemetry-instrument", "gunicorn", "app.main:app", "-c", "config/gunicorn_conf.py"]

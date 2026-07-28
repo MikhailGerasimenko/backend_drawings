@@ -1,67 +1,60 @@
+"""Настройки из переменных окружения (.env / docker compose)."""
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """Application settings."""
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    # App settings
-    app_name: str = "Digital Process Engineer"
-    app_version: str = "1.0.0"
-    debug: bool = False
-
-    # Server settings
-    host: str = "0.0.0.0"
-    port: int = 8000
-
-    # Timezone settings
-    time_zone: str = "Europe/Moscow"
-
-    # Database
     database_url: str = "postgresql://draw_chat:draw_chat_dev@localhost:5432/draw_chat"
-
-    # Authentication
     secret_key: str = "dev-secret-change-me"
-    token_ttl_days: int = 7
-
-    # AI / LLM
     openrouter_api_key: str = ""
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     ai_model: str = "anthropic/claude-3.5-sonnet"
+    # false — для LiteLLM/прокси с самоподписанным TLS (только dev/внутренняя сеть)
     ai_verify_ssl: bool = True
-
-    # Bootstrap admin
     bootstrap_admin_login: str = "admin"
     bootstrap_admin_password: str = "admin"
-
-    # File upload
-    max_upload_bytes: int = 20 * 1024 * 1024  # 20 MB
-
-    # Sentry
+    token_ttl_days: int = 7
+    max_upload_bytes: int = 20 * 1024 * 1024
     sentry_dsn: str = ""
-
-    # LLM
+    sentry_environment: str = "development"
+    # 0 — бессрочное хранение payload в llm_requests_log (purge отключён)
     llm_payload_retention_days: int = 0
+    # Бюджет истории переписки LLM в символах (~50k токенов по эвристике символы/4);
+    # настраивается под лимит контекста модели — specs/002 research R-03 / FR-010
     llm_history_max_chars: int = 200_000
-
-    # DXF Converter
     dxf_converter_url: str = "http://dxf-converter:8001"
     dxf_converter_timeout: float = 8.0
 
-    # OpenTelemetry
-    otel_service_name: str = "fastapi-template"
-    otel_exporter_otlp_endpoint: str = "http://localhost:4318"
-    otel_exporter_otlp_protocol: str = "http/protobuf"
-    otel_traces_exporter: str = "otlp"
-    otel_traces_sampler: str = "always_on"
-    otel_metrics_exporter: str = "none"
-    otel_logs_exporter: str = "none"
 
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-        case_sensitive=False,
-        extra="ignore",
-    )
+settings = Settings()
+"""Настройки из переменных окружения (.env / docker compose)."""
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    database_url: str = "postgresql://draw_chat:draw_chat_dev@localhost:5432/draw_chat"
+    secret_key: str = "dev-secret-change-me"
+    openrouter_api_key: str = ""
+    openrouter_base_url: str = "https://openrouter.ai/api/v1"
+    ai_model: str = "anthropic/claude-3.5-sonnet"
+    # false — для LiteLLM/прокси с самоподписанным TLS (только dev/внутренняя сеть)
+    ai_verify_ssl: bool = True
+    bootstrap_admin_login: str = "admin"
+    bootstrap_admin_password: str = "admin"
+    token_ttl_days: int = 7
+    max_upload_bytes: int = 20 * 1024 * 1024
+    sentry_dsn: str = ""
+    sentry_environment: str = "development"
+    # 0 — бессрочное хранение payload в llm_requests_log (purge отключён)
+    llm_payload_retention_days: int = 0
+    # Бюджет истории переписки LLM в символах (~50k токенов по эвристике символы/4);
+    # настраивается под лимит контекста модели — specs/002 research R-03 / FR-010
+    llm_history_max_chars: int = 200_000
+    dxf_converter_url: str = "http://dxf-converter:8001"
+    dxf_converter_timeout: float = 8.0
 
 
 settings = Settings()

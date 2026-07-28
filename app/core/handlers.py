@@ -1,90 +1,94 @@
+"""Обработчики исключений FastAPI."""
 import logging
 
-from fastapi import Request, status
-from fastapi.exceptions import RequestValidationError
+from fastapi import Request
 from fastapi.responses import JSONResponse
-from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app.api.v1.schemas.responses import ErrorDetail, ErrorResponse
-from app.core.utils import get_current_timestamp
+from app.core.config import settings
+from app.core.exceptions import AppError
 
 logger = logging.getLogger(__name__)
 
 
-async def http_exception_handler(
-    request: Request, exc: StarletteHTTPException
-) -> JSONResponse:
-    """Handler for HTTP exceptions."""
-    request_id = getattr(request.state, "request_id", "unknown")
+def error_body(code: str, message: str) -> dict:
+    return {"error": {"code": code, "message": message}}
 
-    error_response = ErrorResponse(
-        request_id=request_id,
-        timestamp=get_current_timestamp(),
-        error=ErrorDetail(
-            code=f"HTTP_{exc.status_code}",
-            message=(
-                exc.detail if isinstance(exc.detail, str) else str(exc.detail)
-            ),
-        ),
-    )
 
+async def app_error_handler(_request: Request, exc: AppError) -> JSONResponse:
+    return JSONResponse(status_code=exc.status, content=error_body(exc.code, exc.message))
+
+
+def _drawing_meta_from_request(request: Request) -> dict:
+    meta: dict = {}
+    session_id = request.query_params.get("id")
+    if session_id:
+        meta["session_id"] = session_id
+    return meta
+
+
+async def unhandled_error_handler(request: Request, exc: Exception) -> JSONResponse:
+    logger.exception("unhandled error")
+    if settings.sentry_dsn:
+        try:
+            import sentry_sdk
+
+            with sentry_sdk.push_scope() as scope:
+                auth = request.headers.get("authorization") or ""
+                if auth.lower().startswith("bearer "):
+                    scope.set_tag("has_auth", "true")
+                for k, v in _drawing_meta_from_request(request).items():
+                    scope.set_tag(k, str(v))
+                sentry_sdk.capture_exception(exc)
+        except Exception:
+            logger.exception("sentry capture failed")
     return JSONResponse(
-        status_code=exc.status_code, content=error_response.model_dump()
+        status_code=500,
+        content=error_body("INTERNAL_ERROR", str(exc) or "Внутренняя ошибка"),
     )
+"""Обработчики исключений FastAPI."""
+import logging
+
+from fastapi import Request
+from fastapi.responses import JSONResponse
+
+from app.core.config import settings
+from app.core.exceptions import AppError
+
+logger = logging.getLogger(__name__)
 
 
-async def validation_exception_handler(
-    request: Request, exc: RequestValidationError
-) -> JSONResponse:
-    """Handler for validation errors."""
-    request_id = getattr(request.state, "request_id", "unknown")
+def error_body(code: str, message: str) -> dict:
+    return {"error": {"code": code, "message": message}}
 
-    errors = []
-    for error in exc.errors():
-        errors.append(
-            ErrorDetail(
-                code="VALIDATION_ERROR",
-                message=error.get("msg", "Validation error"),
-                field=".".join(str(loc) for loc in error.get("loc", [])),
-            )
-        )
 
-    error_response = ErrorResponse(
-        request_id=request_id,
-        timestamp=get_current_timestamp(),
-        error=ErrorDetail(
-            code="VALIDATION_ERROR", message="Request validation failed"
-        ),
-        errors=errors,
-    )
+async def app_error_handler(_request: Request, exc: AppError) -> JSONResponse:
+    return JSONResponse(status_code=exc.status, content=error_body(exc.code, exc.message))
 
+
+def _drawing_meta_from_request(request: Request) -> dict:
+    meta: dict = {}
+    session_id = request.query_params.get("id")
+    if session_id:
+        meta["session_id"] = session_id
+    return meta
+
+
+async def unhandled_error_handler(request: Request, exc: Exception) -> JSONResponse:
+    logger.exception("unhandled error")
+    if settings.sentry_dsn:
+        try:
+            import sentry_sdk
+
+            with sentry_sdk.push_scope() as scope:
+                auth = request.headers.get("authorization") or ""
+                if auth.lower().startswith("bearer "):
+                    scope.set_tag("has_auth", "true")
+                for k, v in _drawing_meta_from_request(request).items():
+                    scope.set_tag(k, str(v))
+                sentry_sdk.capture_exception(exc)
+        except Exception:
+            logger.exception("sentry capture failed")
     return JSONResponse(
-        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-        content=error_response.model_dump(),
-    )
-
-
-async def general_exception_handler(
-    request: Request, exc: Exception
-) -> JSONResponse:
-    """Handler for unexpected exceptions."""
-    request_id = getattr(request.state, "request_id", "unknown")
-
-    logger.exception(
-        f"Unhandled exception: {type(exc).__name__}: {str(exc)}",
-        extra={"request_id": request_id, "path": request.url.path},
-    )
-
-    error_response = ErrorResponse(
-        request_id=request_id,
-        timestamp=get_current_timestamp(),
-        error=ErrorDetail(
-            code="INTERNAL_SERVER_ERROR",
-            message="An unexpected error occurred",
-        ),
-    )
-
-    return JSONResponse(
-        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content=error_response.model_dump(),
+        status_code=500,
+        content=error_body("INTERNAL_ERROR", str(exc) or "Внутренняя ошибка"),
     )
