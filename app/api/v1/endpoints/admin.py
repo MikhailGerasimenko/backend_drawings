@@ -26,7 +26,8 @@ from app.roles import (
     can_reset_password,
     normalize_role,
 )
-from app.schemas.admin import TeamPublic, TeamUpdateRequest, UserAdminPublic, UserUpdateRequest
+from app.schemas.admin import TeamUpdateRequest, UserAdminPublic, UserUpdateRequest
+from app.schemas.auth import TeamPublic
 from app.security import generate_random_password, hash_password, make_salt
 
 router = APIRouter(prefix="/admin", tags=["admin"])
