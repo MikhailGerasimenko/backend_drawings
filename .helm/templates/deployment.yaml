@@ -57,6 +57,24 @@ spec:
       {{- include "tplvalues.render" ( dict "value" $value "context" $ ) | nindent 8 }}
       {{- end }}
       {{- end }}
+      - name: migrations
+        image: "{{ .Values.global.image.repository }}:{{ .Values.global.image.tag }}"
+        imagePullPolicy: {{ .Values.global.imagePullPolicy | default "Always" }}
+        command: ['sh', '-c', 'cd /app && alembic upgrade head']
+        envFrom:
+        {{- if and (eq .Values.secrets.enabled true) (ne .Values.secrets.env false) }}
+        {{- if .Values.secrets.platformCommon.enabled }}
+          - secretRef:
+              name: {{ $fullName }}-platform-common
+        {{- end }}
+          - secretRef:
+              name: {{ $fullName }}-secret
+        {{- if .Values.secrets.common }}
+          - secretRef:
+              name: {{ $fullName }}-common
+        {{- end }}
+        {{- end }}
+        resources: {}
       {{- if .Values.deployment.nodeSelector }}
       nodeSelector:
       {{- toYaml .Values.deployment.nodeSelector | nindent 8 }}

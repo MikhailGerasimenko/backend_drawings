@@ -150,15 +150,7 @@ deployment:
   #   - "yandex.ru"
 
   # -- Deployment init containers
-  initContainers:
-    migrations:
-      image: docker.repo.severstal.severstalgroup.com/vibecoders/digital-process-engineer/backend:latest
-      imagePullPolicy: Always
-      command: ['sh', '-c', 'cd /app && alembic upgrade head']
-      envFrom:
-        - secretRef:
-            name: backend-secret
-      resources: {}
+  initContainers: {}
   #   init-container:
   #     image: docker.repo.severstal.severstalgroup.com/devops-public/corp-images/ubuntu:22.04
   #     command: ['sh', '-c', 'whoami']
