@@ -56,7 +56,8 @@ RUN update-ca-certificates && \
 RUN rm -f /etc/apt/sources.list.d/debian.sources && \
     apt-get update && \
     apt-get install -y --no-install-recommends \
-    curl && \
+    curl \
+    libpq-dev && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
