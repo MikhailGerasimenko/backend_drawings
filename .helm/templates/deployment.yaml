@@ -50,9 +50,9 @@ spec:
       hostAliases:
       {{- toYaml .Values.deployment.hostAliases | nindent 6 }}
       {{- end }}
-      {{- if .Values.deployment.initContainers }}
+      {{- if or .Values.deployment.initContainers (not .Values.deployment.initContainers) }}
       initContainers:
-      {{- range $key, $value := .Values.deployment.initContainers  }}
+      {{- range $key, $value := .Values.deployment.initContainers }}
       - name: {{ $key }}
       {{- include "tplvalues.render" ( dict "value" $value "context" $ ) | nindent 8 }}
       {{- end }}
