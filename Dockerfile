@@ -87,8 +87,5 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8000/api/v1/health || exit 1
 
-# sh -c: миграции
-CMD ["sh", "-c", "alembic upgrade head"]
-
-# Zero-code tracing: opentelemetry-instrument wraps the server and exports via OTLP.
-CMD ["opentelemetry-instrument", "gunicorn", "app.main:app", "-c", "config/gunicorn_conf.py"]
+# sh -c: сначала миграции, потом сервер через opentelemetry-instrument
+CMD ["sh", "-c", "alembic upgrade head && opentelemetry-instrument gunicorn app.main:app -c config/gunicorn_conf.py"]
