@@ -131,7 +131,7 @@ deployment:
       maxSurge: 25%
 
   # -- Command to run in main container
-  command: ['gunicorn', '-w', '2', '-k', 'uvicorn.workers.UvicornWorker', '--bind', '0.0.0.0:8000', '--timeout', '60', 'app.main:app']
+  command: ""
 
   ports:
   - containerPort: 8000
@@ -150,7 +150,15 @@ deployment:
   #   - "yandex.ru"
 
   # -- Deployment init containers
-  initContainers: {}
+  initContainers:
+    migrations:
+      image: docker.repo.severstal.severstalgroup.com/vibecoders/digital-process-engineer/backend:latest
+      imagePullPolicy: Always
+      command: ['sh', '-c', 'cd /app && alembic upgrade head']
+      envFrom:
+        - secretRef:
+            name: backend-secret
+      resources: {}
   #   init-container:
   #     image: docker.repo.severstal.severstalgroup.com/devops-public/corp-images/ubuntu:22.04
   #     command: ['sh', '-c', 'whoami']
