@@ -13,7 +13,7 @@ _RETRY_DELAYS = (0.5, 1.0, 2.0)
 
 
 async def _post_convert(dxf_bytes: bytes, *, render_png: bool) -> dict:
-    """POST /v1/api/convert → parsed JSON. Retry on network errors; raise AppError on HTTP 4xx."""
+    """POST /api/v1/convert → parsed JSON. Retry on network errors; raise AppError on HTTP 4xx."""
     last_exc: Exception | None = None
     for attempt, delay in enumerate(_RETRY_DELAYS, 1):
         try:
@@ -22,7 +22,7 @@ async def _post_convert(dxf_bytes: bytes, *, render_png: bool) -> dict:
                 timeout=settings.dxf_converter_timeout,
             ) as client:
                 resp = await client.post(
-                    "/v1/api/convert",
+                    "/api/v1/convert",
                     files={"file": ("drawing.dxf", dxf_bytes, "application/octet-stream")},
                     data={"render_png": "true" if render_png else "false"},
                 )
@@ -65,8 +65,8 @@ async def get_preview_png(dxf_bytes: bytes) -> bytes:
     """Конвертировать DXF → PNG-превью (bytes).
 
     Шаги:
-    1. POST /v1/api/convert с render_png=true → получаем job_id и имя PNG-файла
-    2. GET /v1/api/artifacts/{job_id}/{filename} → скачиваем PNG bytes
+    1. POST /api/v1/convert с render_png=true → получаем job_id и имя PNG-файла
+    2. GET /api/v1/artifacts/{job_id}/{filename} → скачиваем PNG bytes
     """
     data = await _post_convert(dxf_bytes, render_png=True)
 
@@ -76,7 +76,7 @@ async def get_preview_png(dxf_bytes: bytes) -> bytes:
         raise AppError("DXF_CONVERSION_FAILED", "Конвертер не вернул PNG артефакт", 422)
 
     artifact_url = (
-        f"{settings.dxf_converter_url.rstrip('/')}/v1/api/artifacts/{job_id}/{png_filename}"
+        f"{settings.dxf_converter_url.rstrip('/')}/api/v1/artifacts/{job_id}/{png_filename}"
     )
     last_exc: Exception | None = None
     for attempt, delay in enumerate(_RETRY_DELAYS, 1):
@@ -111,7 +111,7 @@ async def get_preview_png(dxf_bytes: bytes) -> bytes:
 async def get_llm_markdown(dxf_bytes: bytes) -> str:
     """Конвертировать DXF → LLM Markdown контекст (строка).
 
-    POST /v1/api/convert с render_png=false → поле llm_context в ответе.
+    POST /api/v1/convert с render_png=false → поле llm_context в ответе.
     """
     data = await _post_convert(dxf_bytes, render_png=False)
     return data.get("llm_context") or ""
