@@ -13,7 +13,7 @@ _RETRY_DELAYS = (0.5, 1.0, 2.0)
 
 
 async def _post_convert(dxf_bytes: bytes, *, render_png: bool) -> dict:
-    """POST /v1/api/convert/api/convert → parsed JSON. Retry on network errors; raise AppError on HTTP 4xx."""
+    """POST /v1/api/convert → parsed JSON. Retry on network errors; raise AppError on HTTP 4xx."""
     last_exc: Exception | None = None
     for attempt, delay in enumerate(_RETRY_DELAYS, 1):
         try:
@@ -22,7 +22,7 @@ async def _post_convert(dxf_bytes: bytes, *, render_png: bool) -> dict:
                 timeout=settings.dxf_converter_timeout,
             ) as client:
                 resp = await client.post(
-                    "/v1/api/convert/api/convert",
+                    "/v1/api/convert",
                     files={"file": ("drawing.dxf", dxf_bytes, "application/octet-stream")},
                     data={"render_png": "true" if render_png else "false"},
                 )
@@ -65,7 +65,7 @@ async def get_preview_png(dxf_bytes: bytes) -> bytes:
     """Конвертировать DXF → PNG-превью (bytes).
 
     Шаги:
-    1. POST /v1/api/convert/api/convert с render_png=true → получаем job_id и имя PNG-файла
+    1. POST /v1/api/convert с render_png=true → получаем job_id и имя PNG-файла
     2. GET /v1/api/artifacts/{job_id}/{filename} → скачиваем PNG bytes
     """
     data = await _post_convert(dxf_bytes, render_png=True)
