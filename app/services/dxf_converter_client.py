@@ -11,6 +11,9 @@ logger = logging.getLogger(__name__)
 
 _RETRY_DELAYS = (0.5, 1.0, 2.0)
 
+# Ключ в sessions.llm_history: Markdown с upload, чтобы analyze не звал convert повторно
+DXF_LLM_CONTEXT_KEY = "_dxf_llm_context"
+
 
 def _unwrap_convert_payload(body: dict) -> dict:
     """Corp BaseResponse: поля convert лежат в body['data']; старый flat-ответ тоже ок."""
@@ -94,13 +97,8 @@ async def _post_convert(dxf_bytes: bytes, *, render_png: bool) -> dict:
     ) from last_exc
 
 
-async def get_preview_png(dxf_bytes: bytes) -> bytes:
-    """Конвертировать DXF → PNG-превью (bytes).
-
-    Шаги:
-    1. POST /api/v1/convert с render_png=true → job_id и имя PNG в data.*
-    2. GET /api/v1/artifacts/{job_id}/{filename} → скачиваем PNG bytes
-    """
+async def convert_with_preview(dxf_bytes: bytes) -> tuple[bytes, str]:
+    """Один вызов convert: PNG bytes + llm_context (для upload + analyze без второго convert)."""
     data = await _post_convert(dxf_bytes, render_png=True)
 
     png_filename = (data.get("files") or {}).get("png")
@@ -122,7 +120,7 @@ async def get_preview_png(dxf_bytes: bytes) -> bytes:
                     f"Не удалось скачать PNG превью: HTTP {resp.status_code}",
                     422,
                 )
-            return resp.content
+            return resp.content, str(data.get("llm_context") or "")
         except AppError:
             raise
         except (httpx.ConnectError, httpx.TimeoutException, httpx.NetworkError) as exc:
@@ -139,6 +137,12 @@ async def get_preview_png(dxf_bytes: bytes) -> bytes:
         "Сервис конвертации DXF недоступен при скачивании PNG",
         502,
     ) from last_exc
+
+
+async def get_preview_png(dxf_bytes: bytes) -> bytes:
+    """Конвертировать DXF → PNG-превью (bytes)."""
+    png_bytes, _ = await convert_with_preview(dxf_bytes)
+    return png_bytes
 
 
 async def get_llm_markdown(dxf_bytes: bytes) -> str:
