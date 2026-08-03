@@ -12,8 +12,37 @@ logger = logging.getLogger(__name__)
 _RETRY_DELAYS = (0.5, 1.0, 2.0)
 
 
+def _unwrap_convert_payload(body: dict) -> dict:
+    """Corp BaseResponse: поля convert лежат в body['data']; старый flat-ответ тоже ок."""
+    if not isinstance(body, dict):
+        return {}
+    data = body.get("data")
+    if isinstance(data, dict) and (
+        "job_id" in data or "files" in data or "llm_context" in data
+    ):
+        return data
+    return body
+
+
+def _error_message(resp: httpx.Response) -> str:
+    ct = resp.headers.get("content-type", "")
+    if "json" not in ct:
+        return resp.text[:200] or f"HTTP {resp.status_code}"
+    try:
+        body = resp.json()
+    except Exception:
+        return resp.text[:200] or f"HTTP {resp.status_code}"
+    if isinstance(body, dict):
+        err = body.get("error")
+        if isinstance(err, dict) and err.get("message"):
+            return str(err["message"])
+        if body.get("detail") is not None:
+            return str(body["detail"])
+    return f"HTTP {resp.status_code}"
+
+
 async def _post_convert(dxf_bytes: bytes, *, render_png: bool) -> dict:
-    """POST /api/v1/convert → parsed JSON. Retry on network errors; raise AppError on HTTP 4xx."""
+    """POST /api/v1/convert → ConvertData (unwrap BaseResponse.data)."""
     last_exc: Exception | None = None
     for attempt, delay in enumerate(_RETRY_DELAYS, 1):
         try:
@@ -26,30 +55,34 @@ async def _post_convert(dxf_bytes: bytes, *, render_png: bool) -> dict:
                     files={"file": ("drawing.dxf", dxf_bytes, "application/octet-stream")},
                     data={"render_png": "true" if render_png else "false"},
                 )
-            ct = resp.headers.get("content-type", "")
             if resp.status_code == 422:
-                detail = resp.json().get("detail", "Ошибка конвертации DXF") if "json" in ct else resp.text[:200]
-                raise AppError("DXF_CONVERSION_FAILED", str(detail), 422)
+                raise AppError("DXF_CONVERSION_FAILED", _error_message(resp), 422)
             if resp.status_code >= 400:
                 raise AppError(
                     "DXF_CONVERSION_FAILED",
-                    f"DXF Converter вернул HTTP {resp.status_code}",
+                    f"DXF Converter вернул HTTP {resp.status_code}: {_error_message(resp)}",
                     422,
                 )
-            return resp.json()
+            return _unwrap_convert_payload(resp.json())
         except AppError:
             raise
         except (httpx.ConnectError, httpx.TimeoutException, httpx.NetworkError) as exc:
             last_exc = exc
             logger.warning(
-                "DXF Converter недоступен (попытка %s/%s): %s", attempt, len(_RETRY_DELAYS), exc
+                "DXF Converter недоступен (попытка %s/%s): %s",
+                attempt,
+                len(_RETRY_DELAYS),
+                exc,
             )
             if attempt < len(_RETRY_DELAYS):
                 await asyncio.sleep(delay)
         except Exception as exc:
             last_exc = exc
             logger.warning(
-                "DXF Converter ошибка (попытка %s/%s): %s", attempt, len(_RETRY_DELAYS), exc
+                "DXF Converter ошибка (попытка %s/%s): %s",
+                attempt,
+                len(_RETRY_DELAYS),
+                exc,
             )
             if attempt < len(_RETRY_DELAYS):
                 await asyncio.sleep(delay)
@@ -65,7 +98,7 @@ async def get_preview_png(dxf_bytes: bytes) -> bytes:
     """Конвертировать DXF → PNG-превью (bytes).
 
     Шаги:
-    1. POST /api/v1/convert с render_png=true → получаем job_id и имя PNG-файла
+    1. POST /api/v1/convert с render_png=true → job_id и имя PNG в data.*
     2. GET /api/v1/artifacts/{job_id}/{filename} → скачиваем PNG bytes
     """
     data = await _post_convert(dxf_bytes, render_png=True)
@@ -111,7 +144,7 @@ async def get_preview_png(dxf_bytes: bytes) -> bytes:
 async def get_llm_markdown(dxf_bytes: bytes) -> str:
     """Конвертировать DXF → LLM Markdown контекст (строка).
 
-    POST /api/v1/convert с render_png=false → поле llm_context в ответе.
+    POST /api/v1/convert с render_png=false → data.llm_context.
     """
     data = await _post_convert(dxf_bytes, render_png=False)
     return data.get("llm_context") or ""

@@ -24,7 +24,8 @@ class Settings(BaseSettings):
     # настраивается под лимит контекста модели — specs/002 research R-03 / FR-010
     llm_history_max_chars: int = 200_000
     dxf_converter_url: str = "http://dxf-converter:8000"
-    dxf_converter_timeout: float = 8.0
+    # PNG-рендер DXF может занимать десятки секунд
+    dxf_converter_timeout: float = 120.0
 
 
 settings = Settings()
