@@ -92,7 +92,9 @@ deployment:
   # -- Fixed Environment variable
   env:
     - name: WEB_CONCURRENCY
-      value: "2"
+      value: "1"
+    - name: GUNICORN_TIMEOUT
+      value: "300"
   # - name: DOTNET_CLI_TELEMETRY_OPTOUT
   #   value: "1"
   # - name: DOTNET_USE_POLLING_FILE_WATCHER

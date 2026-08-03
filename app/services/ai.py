@@ -1,4 +1,5 @@
 """VLM-паспорт и LLM-технология через Openrouter (+ mock без ключа)."""
+import asyncio
 import json
 import logging
 import re
@@ -55,6 +56,9 @@ logger = logging.getLogger(__name__)
 
 # OpenRouter attribution; HTTP-заголовки — только ASCII (иначе UnicodeEncodeError на Windows).
 OPENROUTER_X_TITLE = "Cifrovoy Tehnolog"
+_OPENROUTER_RETRY_DELAYS = (1.0, 2.0, 4.0)
+# Корп. прокси/модель часто рвут длинный ответ — ограничиваем входной Markdown
+_DXF_CONTEXT_MAX_CHARS = 100_000
 
 
 def _parse_json_content(text: str) -> dict:
@@ -89,6 +93,10 @@ def _parse_json_content(text: str) -> dict:
     ) from last_error
 
 
+def _is_openrouter_transport_error(exc: BaseException) -> bool:
+    return isinstance(exc, (httpx.TimeoutException, httpx.TransportError))
+
+
 async def call_openrouter(
     conn: ModelConnection,
     messages: list,
@@ -107,6 +115,8 @@ async def call_openrouter(
         "model": conn.model,
         "messages": messages,
         "temperature": conn.temperature,
+        # Явный лимит снижает риск обрыва прокси при долгой генерации
+        "max_tokens": 8192,
     }
     if json_mode:
         body["response_format"] = {"type": "json_object"}
@@ -118,53 +128,78 @@ async def call_openrouter(
         "X-Title": OPENROUTER_X_TITLE,
         "X-OpenRouter-Cache": "true",
     }
-    t0 = time.perf_counter()
-    try:
-        async with httpx.AsyncClient(timeout=300.0, verify=verify_ssl) as client:
-            res = await client.post(
-                f"{conn.base_url}/chat/completions",
-                headers=headers,
-                json=body,
-            )
-        latency_ms = int((time.perf_counter() - t0) * 1000)
-        if res.status_code >= 400:
-            if telemetry:
-                record_llm_call_failed(
-                    telemetry, conn.model, messages, latency_ms=latency_ms
+    url = f"{conn.base_url.rstrip('/')}/chat/completions"
+    timeout = httpx.Timeout(connect=30.0, read=300.0, write=120.0, pool=30.0)
+    last_exc: Exception | None = None
+    attempts = len(_OPENROUTER_RETRY_DELAYS) + 1
+
+    for attempt in range(1, attempts + 1):
+        t0 = time.perf_counter()
+        try:
+            async with httpx.AsyncClient(timeout=timeout, verify=verify_ssl) as client:
+                res = await client.post(url, headers=headers, json=body)
+            latency_ms = int((time.perf_counter() - t0) * 1000)
+            if res.status_code >= 400:
+                if telemetry:
+                    record_llm_call_failed(
+                        telemetry, conn.model, messages, latency_ms=latency_ms
+                    )
+                    telemetry.db.commit()
+                err = res.json().get("error", {}) if res.headers.get(
+                    "content-type", ""
+                ).startswith("application/json") else {}
+                msg = err.get("message") or res.text[:200] or f"HTTP {res.status_code}"
+                raise AppError("AI_UNAVAILABLE", f"Openrouter: {msg}", 502)
+            data = res.json()
+            msg = (data.get("choices") or [{}])[0].get("message", {})
+            text = msg.get("content")
+            if not text:
+                logger.warning(
+                    "Пустой content от %s. Поля message: %s. choices[0]: %s",
+                    conn.model,
+                    list(msg.keys()),
+                    json.dumps((data.get("choices") or [{}])[0], ensure_ascii=False)[:2000],
                 )
-                telemetry.db.commit()
-            err = res.json().get("error", {}) if res.headers.get(
-                "content-type", ""
-            ).startswith("application/json") else {}
-            msg = err.get("message") or res.text[:200] or f"HTTP {res.status_code}"
-            raise AppError("AI_UNAVAILABLE", f"Openrouter: {msg}", 502)
-        data = res.json()
-        msg = (data.get("choices") or [{}])[0].get("message", {})
-        text = msg.get("content")
-        if not text:
-            logger.warning(
-                "Пустой content от %s. Поля message: %s. choices[0]: %s",
-                conn.model,
-                list(msg.keys()),
-                json.dumps((data.get("choices") or [{}])[0], ensure_ascii=False)[:2000],
-            )
+                if telemetry:
+                    record_llm_call_failed(
+                        telemetry, conn.model, messages, latency_ms=latency_ms
+                    )
+                    telemetry.db.commit()
+                raise AppError("AI_UNAVAILABLE", "Пустой ответ Openrouter", 502)
             if telemetry:
-                record_llm_call_failed(
-                    telemetry, conn.model, messages, latency_ms=latency_ms
-                )
+                record_llm_call(telemetry, conn.model, messages, data, res, latency_ms)
                 telemetry.db.commit()
-            raise AppError("AI_UNAVAILABLE", "Пустой ответ Openrouter", 502)
-        if telemetry:
-            record_llm_call(telemetry, conn.model, messages, data, res, latency_ms)
-            telemetry.db.commit()
-        return _parse_json_content(text)
-    except AppError:
-        raise
-    except Exception as exc:
-        if telemetry:
-            record_llm_call_failed(telemetry, conn.model, messages)
-            telemetry.db.commit()
-        raise AppError("AI_UNAVAILABLE", str(exc) or "Ошибка Openrouter", 502) from exc
+            return _parse_json_content(text)
+        except AppError:
+            raise
+        except Exception as exc:
+            last_exc = exc
+            if _is_openrouter_transport_error(exc) and attempt < attempts:
+                delay = _OPENROUTER_RETRY_DELAYS[attempt - 1]
+                logger.warning(
+                    "Openrouter transport error attempt %s/%s model=%s: %s; retry in %.1fs",
+                    attempt,
+                    attempts,
+                    conn.model,
+                    exc,
+                    delay,
+                )
+                await asyncio.sleep(delay)
+                continue
+            if telemetry:
+                record_llm_call_failed(telemetry, conn.model, messages)
+                telemetry.db.commit()
+            raise AppError(
+                "AI_UNAVAILABLE",
+                f"Openrouter ({conn.model}): {exc}" if exc else "Ошибка Openrouter",
+                502,
+            ) from exc
+
+    raise AppError(
+        "AI_UNAVAILABLE",
+        f"Openrouter ({conn.model}): {last_exc}" if last_exc else "Ошибка Openrouter",
+        502,
+    ) from last_exc
 
 
 async def generate_passport_from_drawing(
@@ -224,12 +259,19 @@ async def generate_passport_from_dxf(
     else:
         md_text = await get_llm_markdown(dxf_bytes)
     if not md_text or len(md_text) <= 50:
-        from app.core.exceptions import AppError
         raise AppError(
             "DXF_EMPTY_CONTEXT",
             "Конвертер вернул пустой инженерный контекст",
             422,
         )
+    if len(md_text) > _DXF_CONTEXT_MAX_CHARS:
+        logger.warning(
+            "DXF llm_context truncated session=%s from %s to %s chars",
+            s.id,
+            len(md_text),
+            _DXF_CONTEXT_MAX_CHARS,
+        )
+        md_text = md_text[:_DXF_CONTEXT_MAX_CHARS] + "\n\n…[truncated]"
 
     system_prompt = (
         get_active_prompt(db, s.team_id, "passport_dxf") + "\n\n" + PASSPORT_JSON_APPENDIX
@@ -242,14 +284,35 @@ async def generate_passport_from_dxf(
         initial_user_content=initial_user_content,
     )
     telemetry = TelemetryCtx(db, s.id, user_id, "passport", extra_meta={"drawing_source": "dxf"})
-    raw = await call_openrouter(
-        config.dxf_passport,
-        messages,
-        json_mode=True,
-        verify_ssl=config.verify_ssl,
-        telemetry=telemetry,
-    )
-    return normalize_passport(raw)
+    try:
+        raw = await call_openrouter(
+            config.dxf_passport,
+            messages,
+            json_mode=True,
+            verify_ssl=config.verify_ssl,
+            telemetry=telemetry,
+        )
+        return normalize_passport(raw)
+    except AppError as exc:
+        # Текст/прокси оборвались — пробуем VLM по уже готовому PNG-превью
+        preview_url = resolve_preview_url(
+            s.drawing_preview_url, s.drawing_b64, s.drawing_mime
+        )
+        msg = (exc.message or "").lower()
+        transportish = any(
+            x in msg
+            for x in ("disconnected", "timeout", "connect", "network", "reset", "eof")
+        )
+        if not transportish or not preview_url or config.passport.use_mock:
+            raise
+        logger.warning(
+            "DXF text passport failed (%s); fallback to VLM PNG session=%s",
+            exc.message,
+            s.id,
+        )
+        return await generate_passport_from_drawing(
+            db, s, preview_url, config, user_id=user_id
+        )
 
 
 def _format_selected_operations(selected: list[dict]) -> str:
