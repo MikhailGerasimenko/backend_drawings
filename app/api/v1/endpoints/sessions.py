@@ -307,7 +307,17 @@ async def upload_drawing(
     s.drawing_mime = mime
     s.drawing_b64 = base64.b64encode(raw).decode("ascii")
     if mime == "application/dxf":
-        s.drawing_preview_url = await dxf_to_preview_url(raw)
+        preview_url, llm_context = await dxf_to_preview_url(raw)
+        s.drawing_preview_url = preview_url
+        # Кэш Markdown с первого convert — analyze не ходит в converter второй раз
+        from app.services.dxf_converter_client import DXF_LLM_CONTEXT_KEY
+
+        hist = dict(s.llm_history or {})
+        if llm_context:
+            hist[DXF_LLM_CONTEXT_KEY] = llm_context
+        else:
+            hist.pop(DXF_LLM_CONTEXT_KEY, None)
+        s.llm_history = hist
     else:
         s.drawing_preview_url = to_preview_url(raw, mime)
     s.status = "ready_to_send"

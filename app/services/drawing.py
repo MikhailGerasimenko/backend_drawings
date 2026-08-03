@@ -75,13 +75,13 @@ def _pdf_first_page_png(raw: bytes) -> bytes:
         doc.close()
 
 
-async def dxf_to_preview_url(dxf_bytes: bytes) -> str:
-    """DXF → data:image/png;base64,… через DXF Converter микросервис."""
+async def dxf_to_preview_url(dxf_bytes: bytes) -> tuple[str, str]:
+    """DXF → (data:image/png;base64,…, llm_context) через DXF Converter."""
     from app.services import dxf_converter_client
 
-    png_bytes = await dxf_converter_client.get_preview_png(dxf_bytes)
+    png_bytes, llm_context = await dxf_converter_client.convert_with_preview(dxf_bytes)
     b64 = base64.b64encode(png_bytes).decode("ascii")
-    return f"data:image/png;base64,{b64}"
+    return f"data:image/png;base64,{b64}", llm_context
 
 
 def to_preview_url(raw: bytes, mime: str) -> str:

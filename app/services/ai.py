@@ -50,7 +50,6 @@ from app.services.session_ops import (
     sync_selected_operations_from_route,
 )
 from app.services.prompts import get_active_prompt
-from app.services import dxf_converter_client
 
 logger = logging.getLogger(__name__)
 
@@ -211,13 +210,19 @@ async def generate_passport_from_dxf(
 
     Шаги (R-05):
     1. Декодировать DXF из drawing_b64
-    2. Получить llm_context от конвертера (POST /v1/convert render_png=false)
+    2. Взять llm_context из кэша upload (_dxf_llm_context) или convert без PNG
     3. Проверить непустоту контекста
     4. Сформировать initial_user_content как текстовый блок
     5. Вызвать build_messages + call_openrouter с config.dxf_passport
     """
     dxf_bytes = base64.b64decode(s.drawing_b64)
-    md_text = await dxf_converter_client.get_llm_markdown(dxf_bytes)
+    from app.services.dxf_converter_client import DXF_LLM_CONTEXT_KEY, get_llm_markdown
+
+    cached = (s.llm_history or {}).get(DXF_LLM_CONTEXT_KEY)
+    if isinstance(cached, str) and len(cached) > 50:
+        md_text = cached
+    else:
+        md_text = await get_llm_markdown(dxf_bytes)
     if not md_text or len(md_text) <= 50:
         from app.core.exceptions import AppError
         raise AppError(

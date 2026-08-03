@@ -41,8 +41,8 @@ def test_dxf_upload_drawing_mime_and_preview(auth_headers):
     sid = r.json()["id"]
 
     with patch(
-        "app.services.dxf_converter_client.get_preview_png",
-        new=AsyncMock(return_value=FAKE_PNG),
+        "app.api.v1.endpoints.sessions.dxf_to_preview_url",
+        new=AsyncMock(return_value=("data:image/png;base64,abc", FAKE_MARKDOWN)),
     ):
         r = client.put(
             f"/api/v1/session/drawing?id={sid}",
@@ -66,8 +66,8 @@ def test_dxf_upload_via_extension_fallback(auth_headers):
     sid = r.json()["id"]
 
     with patch(
-        "app.services.dxf_converter_client.get_preview_png",
-        new=AsyncMock(return_value=FAKE_PNG),
+        "app.api.v1.endpoints.sessions.dxf_to_preview_url",
+        new=AsyncMock(return_value=("data:image/png;base64,abc", FAKE_MARKDOWN)),
     ):
         r = client.put(
             f"/api/v1/session/drawing?id={sid}",
@@ -86,8 +86,8 @@ def test_dxf_analysis_mock_flow(auth_headers):
     sid = r.json()["id"]
 
     with patch(
-        "app.services.dxf_converter_client.get_preview_png",
-        new=AsyncMock(return_value=FAKE_PNG),
+        "app.api.v1.endpoints.sessions.dxf_to_preview_url",
+        new=AsyncMock(return_value=("data:image/png;base64,abc", FAKE_MARKDOWN)),
     ):
         client.put(
             f"/api/v1/session/drawing?id={sid}",
@@ -129,8 +129,8 @@ def test_dxf_analysis_uses_generate_passport_from_dxf(auth_headers):
     sid = r.json()["id"]
 
     with patch(
-        "app.services.dxf_converter_client.get_preview_png",
-        new=AsyncMock(return_value=FAKE_PNG),
+        "app.api.v1.endpoints.sessions.dxf_to_preview_url",
+        new=AsyncMock(return_value=("data:image/png;base64,abc", FAKE_MARKDOWN)),
     ):
         client.put(
             f"/api/v1/session/drawing?id={sid}",
@@ -157,9 +157,8 @@ def test_dxf_analysis_uses_generate_passport_from_dxf(auth_headers):
 def test_dxf_llm_history_initial_user_content(auth_headers):
     """US2: после DXF-анализа llm_history['passport'] содержит assistant-turn с паспортом.
 
-    initial_user_content (Markdown) не хранится в llm_history — аналогично
-    изображению в VLM-сессиях (передаётся как initial_user_content к build_messages).
-    Проверяем, что llm_history корректно заполнен: есть assistant-turn с паспортом.
+    Markdown кэшируется при upload (_dxf_llm_context) и переиспользуется в analyze
+    без второго вызова convert. В llm_history turns — assistant artifact с паспортом.
     """
     from app.db import SessionLocal
     from app.models import WorkSession
@@ -192,8 +191,8 @@ def test_dxf_llm_history_initial_user_content(auth_headers):
     sid = r.json()["id"]
 
     with patch(
-        "app.services.dxf_converter_client.get_preview_png",
-        new=AsyncMock(return_value=FAKE_PNG),
+        "app.api.v1.endpoints.sessions.dxf_to_preview_url",
+        new=AsyncMock(return_value=("data:image/png;base64,abc", FAKE_MARKDOWN)),
     ):
         client.put(
             f"/api/v1/session/drawing?id={sid}",
@@ -201,12 +200,10 @@ def test_dxf_llm_history_initial_user_content(auth_headers):
             headers=auth_headers,
         )
 
+    get_llm = AsyncMock(return_value=FAKE_MARKDOWN)
     with (
         patch("app.services.ai.get_ai_config", side_effect=_fake_get_ai_config),
-        patch(
-            "app.services.dxf_converter_client.get_llm_markdown",
-            new=AsyncMock(return_value=FAKE_MARKDOWN),
-        ),
+        patch("app.services.dxf_converter_client.get_llm_markdown", new=get_llm),
         patch(
             "app.services.ai.call_openrouter",
             new=AsyncMock(return_value=mock_passport),
@@ -225,10 +222,10 @@ def test_dxf_llm_history_initial_user_content(auth_headers):
 
     assert body is not None
     assert body["status"] == "passport_review", body.get("status")
+    # Кэш с upload — второй convert не нужен
+    get_llm.assert_not_called()
 
     # Проверяем llm_history в БД: первый turn — assistant с паспортом
-    # (initial_user_content / Markdown не хранится в llm_history — аналогично VLM-сессиям,
-    #  передаётся как initial_user_content к build_messages при каждом вызове)
     db = SessionLocal()
     try:
         s = db.get(WorkSession, sid)
@@ -263,9 +260,10 @@ def test_dxf_empty_context_raises_error(auth_headers):
     r = client.post("/api/v1/sessions", json={}, headers=auth_headers)
     sid = r.json()["id"]
 
+    # Upload без кэша Markdown (короткий/пустой) → analyze пойдёт в get_llm_markdown
     with patch(
-        "app.services.dxf_converter_client.get_preview_png",
-        new=AsyncMock(return_value=FAKE_PNG),
+        "app.api.v1.endpoints.sessions.dxf_to_preview_url",
+        new=AsyncMock(return_value=("data:image/png;base64,abc", "")),
     ):
         client.put(
             f"/api/v1/session/drawing?id={sid}",
