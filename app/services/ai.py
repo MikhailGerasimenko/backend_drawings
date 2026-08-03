@@ -56,9 +56,12 @@ logger = logging.getLogger(__name__)
 
 # OpenRouter attribution; HTTP-заголовки — только ASCII (иначе UnicodeEncodeError на Windows).
 OPENROUTER_X_TITLE = "Cifrovoy Tehnolog"
-_OPENROUTER_RETRY_DELAYS = (1.0, 2.0, 4.0)
+# 1 повтор: быстрее отдаём ошибку (раньше 3×300с = до ~15 мин зависания)
+_OPENROUTER_RETRY_DELAYS = (2.0,)
 # Корп. прокси/модель часто рвут длинный ответ — ограничиваем входной Markdown
 _DXF_CONTEXT_MAX_CHARS = 100_000
+# Сколько ждать ответ модели за одну попытку (успешный паспорт обычно <1 мин)
+_OPENROUTER_READ_TIMEOUT = 90.0
 
 
 def _parse_json_content(text: str) -> dict:
@@ -129,7 +132,12 @@ async def call_openrouter(
         "X-OpenRouter-Cache": "true",
     }
     url = f"{conn.base_url.rstrip('/')}/chat/completions"
-    timeout = httpx.Timeout(connect=30.0, read=300.0, write=120.0, pool=30.0)
+    timeout = httpx.Timeout(
+        connect=15.0,
+        read=_OPENROUTER_READ_TIMEOUT,
+        write=60.0,
+        pool=15.0,
+    )
     last_exc: Exception | None = None
     attempts = len(_OPENROUTER_RETRY_DELAYS) + 1
 
@@ -284,35 +292,14 @@ async def generate_passport_from_dxf(
         initial_user_content=initial_user_content,
     )
     telemetry = TelemetryCtx(db, s.id, user_id, "passport", extra_meta={"drawing_source": "dxf"})
-    try:
-        raw = await call_openrouter(
-            config.dxf_passport,
-            messages,
-            json_mode=True,
-            verify_ssl=config.verify_ssl,
-            telemetry=telemetry,
-        )
-        return normalize_passport(raw)
-    except AppError as exc:
-        # Текст/прокси оборвались — пробуем VLM по уже готовому PNG-превью
-        preview_url = resolve_preview_url(
-            s.drawing_preview_url, s.drawing_b64, s.drawing_mime
-        )
-        msg = (exc.message or "").lower()
-        transportish = any(
-            x in msg
-            for x in ("disconnected", "timeout", "connect", "network", "reset", "eof")
-        )
-        if not transportish or not preview_url or config.passport.use_mock:
-            raise
-        logger.warning(
-            "DXF text passport failed (%s); fallback to VLM PNG session=%s",
-            exc.message,
-            s.id,
-        )
-        return await generate_passport_from_drawing(
-            db, s, preview_url, config, user_id=user_id
-        )
+    raw = await call_openrouter(
+        config.dxf_passport,
+        messages,
+        json_mode=True,
+        verify_ssl=config.verify_ssl,
+        telemetry=telemetry,
+    )
+    return normalize_passport(raw)
 
 
 def _format_selected_operations(selected: list[dict]) -> str:
