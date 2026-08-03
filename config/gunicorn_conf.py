@@ -10,6 +10,7 @@ worker_class = "uvicorn.workers.UvicornWorker"
 worker_connections = 1000
 # BackgroundTasks (DXF convert + LLM) живут в воркере после 202 — нужен большой timeout
 timeout = int(os.getenv("GUNICORN_TIMEOUT", "300"))
+graceful_timeout = int(os.getenv("GUNICORN_GRACEFUL_TIMEOUT", "60"))
 keepalive = 2
 
 # Logging
