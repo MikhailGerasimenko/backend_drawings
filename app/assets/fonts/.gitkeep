@@ -1,0 +1,2 @@
+# Опционально: DejaVuSans.ttf и DejaVuSans-Bold.ttf для PDF без apt (Windows dev).
+# В Docker используется пакет fonts-dejavu-core.
