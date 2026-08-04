@@ -2,6 +2,7 @@
 import os
 from dataclasses import dataclass
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -58,7 +59,7 @@ def _cfg(db: Session, key: str, default: str = "") -> str:
         key.endswith("ModelKey") or key == "openrouterApiKey"
     ):
         return ""
-    row = db.get(AppConfig, key)
+    row = db.scalars(select(AppConfig).where(AppConfig.key == key).limit(1)).first()
     return row.value if row and row.value is not None else default
 
 
