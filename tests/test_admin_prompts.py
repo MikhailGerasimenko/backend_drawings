@@ -59,13 +59,36 @@ def test_model_config_superuser_only(super_headers):
         "/api/v1/admin/model-config",
         headers=super_headers,
         json={
-            "passport": {"model": "test/passport-model", "temperature": 0.1},
-            "technology": {"model": "test/tech-model", "temperature": 0.5},
+            "passport": {
+                "baseUrl": "https://example.test/v1",
+                "model": "test/passport-model",
+                "temperature": 0.1,
+            },
+            "technology": {
+                "baseUrl": "https://example.test/v1",
+                "model": "test/tech-model",
+                "temperature": 0.5,
+            },
+            "blank_allowance": {
+                "baseUrl": "https://example.test/v1",
+                "model": "test/blank-model",
+                "temperature": 0.3,
+            },
+            "dxf_passport": {
+                "baseUrl": "https://example.test/v1",
+                "model": "test/dxf-model",
+                "temperature": 0.4,
+            },
+            "aiVerifySsl": False,
         },
     )
-    assert r.status_code == 200
+    assert r.status_code == 200, r.text
 
     r = client.get("/api/v1/admin/model-config", headers=super_headers)
     cfg = r.json()
     assert cfg["passport"]["temperature"] == 0.1
     assert cfg["technology"]["temperature"] == 0.5
+    assert cfg["blank_allowance"]["temperature"] == 0.3
+    assert cfg["dxf_passport"]["model"] == "test/dxf-model"
+    assert cfg["dxf_passport"]["temperature"] == 0.4
+    assert cfg["aiVerifySsl"] is False
