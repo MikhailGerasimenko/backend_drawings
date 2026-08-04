@@ -3,7 +3,9 @@ from uuid import UUID
 
 from fastapi import APIRouter, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.orm.exc import StaleDataError
 
 from app.core.config import settings
 from app.deps import DbSession, StaffUser, SuperUser, UserCtx
@@ -48,11 +50,17 @@ def _cfg_get(db, key: str, default: str = "") -> str:
 
 
 def _cfg_set(db, key: str, value: str) -> None:
-    row = db.get(AppConfig, key)
-    if row:
-        row.value = value
-    else:
-        db.add(AppConfig(key=key, value=value))
+    """Upsert без ORM dirty-UPDATE: иначе bulk flush даёт StaleDataError (12 vs 24)."""
+    stmt = pg_insert(AppConfig).values(key=key, value=value)
+    stmt = stmt.on_conflict_do_update(
+        index_elements=[AppConfig.key],
+        set_={"value": stmt.excluded.value},
+    )
+    db.execute(stmt)
+
+
+def _cfg_delete(db, key: str) -> None:
+    db.execute(delete(AppConfig).where(AppConfig.key == key))
 
 
 def _user_admin(db, user: User) -> UserAdminPublic:
@@ -381,9 +389,7 @@ def _apply_endpoint(db, prefix: str, data: ModelEndpointUpdate) -> None:
     if data.apiKey is not None:
         key_name = f"{prefix}ModelKey"
         if data.apiKey == "":
-            row = db.get(AppConfig, key_name)
-            if row:
-                db.delete(row)
+            _cfg_delete(db, key_name)
         elif str(data.apiKey).strip():
             _cfg_set(db, key_name, str(data.apiKey).strip())
 
@@ -391,17 +397,25 @@ def _apply_endpoint(db, prefix: str, data: ModelEndpointUpdate) -> None:
 @router.post("/model-config")
 @router.patch("/model-config")
 def update_model_config(body: ModelConfigUpdate, db: DbSession, _su: SuperUser):
-    if body.passport:
-        _apply_endpoint(db, "passport", body.passport)
-    if body.technology:
-        _apply_endpoint(db, "technology", body.technology)
-    if body.blank_allowance:
-        _apply_endpoint(db, "blankAllowance", body.blank_allowance)
-    if body.dxf_passport:
-        _apply_endpoint(db, "dxfPassport", body.dxf_passport)
-    if body.aiVerifySsl is not None:
-        _cfg_set(db, "aiVerifySsl", "true" if body.aiVerifySsl else "false")
-    db.commit()
+    try:
+        if body.passport:
+            _apply_endpoint(db, "passport", body.passport)
+        if body.technology:
+            _apply_endpoint(db, "technology", body.technology)
+        if body.blank_allowance:
+            _apply_endpoint(db, "blankAllowance", body.blank_allowance)
+        if body.dxf_passport:
+            _apply_endpoint(db, "dxfPassport", body.dxf_passport)
+        if body.aiVerifySsl is not None:
+            _cfg_set(db, "aiVerifySsl", "true" if body.aiVerifySsl else "false")
+        db.commit()
+    except StaleDataError as exc:
+        db.rollback()
+        raise AppError(
+            "CONFIG_SAVE_CONFLICT",
+            "Не удалось сохранить параметры модели (конфликт записи в app_config). Повторите ещё раз.",
+            409,
+        ) from exc
     return {"ok": True}
 
 
