@@ -25,7 +25,7 @@ RUN mkdir -p /root/.pip && \
 ENV PIP_DEFAULT_TIMEOUT=120 \
     POETRY_HTTP_TIMEOUT=120
 
-ARG POETRY_VERSION=2.2.1
+ARG POETRY_VERSION=2.4.1
 
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
     pip install --no-cache-dir --retries 15 --timeout 120 "poetry==${POETRY_VERSION}" && \
