@@ -21,6 +21,7 @@ PRODUCT_ACTIONS = frozenset(
         "technology_approved",
         "export_passport_pdf",
         "export_technology_pdf",
+        "export_technology_xlsx",
         "export_technology_json",
         "session_retry",
         "operations_selected",

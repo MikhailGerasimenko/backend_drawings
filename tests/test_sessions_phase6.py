@@ -80,7 +80,7 @@ def test_technology_json_export_v2_structure(super_headers):
     assert "description" not in tj or tj.get("format") != "text_v1"
 
 
-def test_passport_and_technology_pdf_export(super_headers):
+def test_passport_and_technology_exports(super_headers):
     sid = _session_at_technology_review(super_headers)
     _complete_technology(super_headers, sid)
     r = client.get(
@@ -96,6 +96,17 @@ def test_passport_and_technology_pdf_export(super_headers):
     )
     assert r.status_code == 200
     assert r.json()["download_url"].startswith("data:application/pdf;base64,")
+
+    r = client.get(
+        f"/api/v1/session/exports/technology_xlsx?id={sid}",
+        headers=super_headers,
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["download_url"].startswith(
+        "data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,"
+    )
+    assert body["file_name"].endswith(".xlsx")
 
 
 def test_delete_session_retains_statistics(super_headers):

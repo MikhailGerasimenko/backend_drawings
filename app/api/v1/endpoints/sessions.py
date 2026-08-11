@@ -1,5 +1,6 @@
 """Сессии: чертёж, анализ, паспорт, замечания, выгрузки."""
 import base64
+import re
 from datetime import datetime, timezone
 from uuid import UUID
 
@@ -49,6 +50,7 @@ from app.services.llm_history import append_turn, reset_stage, seed_if_empty
 from app.services.technology_normalize import validate_technology_store
 from app.services.pdf_passport import build_passport_pdf
 from app.services.pdf_technology import build_technology_pdf
+from app.services.xlsx_technology import build_technology_xlsx
 from app.services.session_route import advance_after_operations_skipped, apply_operations_route
 from app.services.session_feedback import (
     get_session_feedback,
@@ -842,7 +844,7 @@ def export_session(
             "download_url": data_url,
             "file_name": f"passport_{id}.pdf",
         }
-    if export_type in ("technology_json", "technology_pdf"):
+    if export_type in ("technology_json", "technology_pdf", "technology_xlsx"):
         # FR-017: финальная выгрузка технологии — только после «Согласовано»
         if s.status != "completed":
             raise AppError(
@@ -866,6 +868,33 @@ def export_session(
         )
         db.commit()
         return s.technology_json
+    if export_type == "technology_xlsx":
+        log_action(
+            db,
+            user_id=user.user_id,
+            team_id=user.team_id,
+            session_id=s.id,
+            action_type="export_technology_xlsx",
+            meta={"export_format": "XLSX"},
+        )
+        data_url = build_technology_xlsx(
+            s.title,
+            s.technology_json,
+            passport=s.passport,
+            technology_text=s.technology_text,
+        )
+        designation = ""
+        if isinstance(s.technology_json, dict):
+            designation = (
+                (s.technology_json.get("header") or {}).get("part_designation")
+                or ""
+            )
+        safe_name = re.sub(r"[^\w.\-]+", "_", designation or str(id), flags=re.UNICODE)
+        db.commit()
+        return {
+            "download_url": data_url,
+            "file_name": f"{safe_name or f'technology_{id}'}.xlsx",
+        }
     if export_type == "technology_pdf":
         log_action(
             db,
