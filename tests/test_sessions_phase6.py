@@ -80,7 +80,11 @@ def test_technology_json_export_v2_structure(super_headers):
     assert "description" not in tj or tj.get("format") != "text_v1"
 
 
+<<<<<<< HEAD
 def test_passport_and_technology_exports(super_headers):
+=======
+def test_passport_and_technology_pdf_export(super_headers):
+>>>>>>> gitlab/dev
     sid = _session_at_technology_review(super_headers)
     _complete_technology(super_headers, sid)
     r = client.get(
@@ -97,6 +101,7 @@ def test_passport_and_technology_exports(super_headers):
     assert r.status_code == 200
     assert r.json()["download_url"].startswith("data:application/pdf;base64,")
 
+<<<<<<< HEAD
     r = client.get(
         f"/api/v1/session/exports/technology_xlsx?id={sid}",
         headers=super_headers,
@@ -108,6 +113,8 @@ def test_passport_and_technology_exports(super_headers):
     )
     assert body["file_name"].endswith(".xlsx")
 
+=======
+>>>>>>> gitlab/dev
 
 def test_delete_session_retains_statistics(super_headers):
     """T030 R-10: мягкое удаление — агрегаты statistics_agg не уменьшаются, строка в БД остаётся."""

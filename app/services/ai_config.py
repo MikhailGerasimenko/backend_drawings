@@ -2,7 +2,10 @@
 import os
 from dataclasses import dataclass
 
+<<<<<<< HEAD
 from sqlalchemy import select
+=======
+>>>>>>> gitlab/dev
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -59,7 +62,11 @@ def _cfg(db: Session, key: str, default: str = "") -> str:
         key.endswith("ModelKey") or key == "openrouterApiKey"
     ):
         return ""
+<<<<<<< HEAD
     row = db.scalars(select(AppConfig).where(AppConfig.key == key).limit(1)).first()
+=======
+    row = db.get(AppConfig, key)
+>>>>>>> gitlab/dev
     return row.value if row and row.value is not None else default
 
 

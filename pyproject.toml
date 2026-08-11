@@ -22,8 +22,11 @@ dependencies = [
     "alembic (>=1.14.0,<2)",
     # File handling
     "python-multipart (>=0.0.12,<1)",
+<<<<<<< HEAD
     # Excel technology card export
     "openpyxl (>=3.1.0,<4)",
+=======
+>>>>>>> gitlab/dev
     # PDF generation
     "reportlab (>=4.2.0,<5) ; python_version<'3.14'",
     "pymupdf (>=1.24.0,<2) ; python_version<'3.14'",

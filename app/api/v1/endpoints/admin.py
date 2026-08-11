@@ -3,7 +3,12 @@ from uuid import UUID
 
 from fastapi import APIRouter, Query
 from pydantic import BaseModel, Field
+<<<<<<< HEAD
 from sqlalchemy import delete, func, insert, select, text, update
+=======
+from sqlalchemy import delete, func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+>>>>>>> gitlab/dev
 from sqlalchemy.orm.exc import StaleDataError
 
 from app.core.config import settings
@@ -44,12 +49,17 @@ MODEL_CONFIG_KEYS = (
 
 
 def _cfg_get(db, key: str, default: str = "") -> str:
+<<<<<<< HEAD
     # limit(1): в проде app_config может быть без PK и с дубликатами ключей
     row = db.scalars(select(AppConfig).where(AppConfig.key == key).limit(1)).first()
+=======
+    row = db.get(AppConfig, key)
+>>>>>>> gitlab/dev
     return row.value if row and row.value is not None else default
 
 
 def _cfg_set(db, key: str, value: str) -> None:
+<<<<<<< HEAD
     """Запись без ON CONFLICT: в проде на app_config.key может не быть UNIQUE/PK."""
     res = db.execute(update(AppConfig).where(AppConfig.key == key).values(value=value))
     if res.rowcount == 0:
@@ -69,6 +79,15 @@ def _cfg_set(db, key: str, value: str) -> None:
             ),
             {"key": key},
         )
+=======
+    """Upsert без ORM dirty-UPDATE: иначе bulk flush даёт StaleDataError (12 vs 24)."""
+    stmt = pg_insert(AppConfig).values(key=key, value=value)
+    stmt = stmt.on_conflict_do_update(
+        index_elements=[AppConfig.key],
+        set_={"value": stmt.excluded.value},
+    )
+    db.execute(stmt)
+>>>>>>> gitlab/dev
 
 
 def _cfg_delete(db, key: str) -> None:
