@@ -3032,4 +3032,4 @@ reference = "corporate"
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11"
-content-hash = "e87329bb74ae24e7f0083829dbcb8149de1d85d10ac0bdbb2a3dcdefa1d4f662"
+content-hash = "569e371469edb50307f399eb5029a15b36775161dc1e112ba08377da332d3774"
