@@ -30,6 +30,7 @@ TEMPLATE_PATH = (
 # Слоты операций на маршрутной карте (№ в колонке B, имя в D).
 _MK1_SLOTS = (17, 21, 24, 27, 30, 33, 36, 39)  # лист 001, по 3 строки
 _MK2_SLOTS = (8, 11, 14, 17, 20, 23, 26, 29, 32)  # лист 002 до блока «Мастер»
+_MK2_MASTER_ROW = 37  # «Мастер / Подпись / ФИО / Дата» на продолжении МК
 _TK1_BODY = (9, 34)  # строки содержания на первом листе ТК
 _TK_CONT_BODY = (5, 36)  # строки содержания на листах-продолжениях ТК
 
@@ -52,12 +53,15 @@ def _s(val: Any) -> str:
 
 
 def _norm_diameter(text: str) -> str:
-    """Привести обозначения диаметра к виду шаблона (‡)."""
+    """Привести обозначения диаметра к виду шаблона (‡).
+
+    «Ф80» — диаметр; «Финальный» / «Фаска» — обычные слова, их не трогаем.
+    """
     if not text:
         return text
-    for ch in ("Ø", "⌀", "ø", "φ", "Ф"):
+    for ch in ("Ø", "⌀", "ø", "φ"):
         text = text.replace(ch, "‡")
-    return text
+    return re.sub(r"(?<![А-Яа-яA-Za-z])[Фф](?=\s*\d)", "‡", text)
 
 
 def _material_without_hrc(material: str) -> str:
@@ -368,6 +372,78 @@ def _clear_mk_cont_slots(ws: Worksheet) -> None:
                 _set(ws, r, col, None)
 
 
+def _origin_cell(ws: Worksheet, row: int, col: int):
+    cell = ws.cell(row, col)
+    if isinstance(cell, MergedCell):
+        for merged in ws.merged_cells.ranges:
+            if cell.coordinate in merged:
+                return ws.cell(merged.min_row, merged.min_col)
+    return cell
+
+
+def _copy_cell_look(src, dst) -> None:
+    dst.font = copy(src.font)
+    dst.alignment = copy(src.alignment)
+    dst.border = copy(src.border)
+    dst.fill = copy(src.fill)
+
+
+def _unmerge_block(ws: Worksheet, min_row: int, max_row: int, min_col: int, max_col: int) -> None:
+    overlapping = [
+        str(rng)
+        for rng in list(ws.merged_cells.ranges)
+        if not (
+            rng.max_row < min_row
+            or rng.min_row > max_row
+            or rng.max_col < min_col
+            or rng.min_col > max_col
+        )
+    ]
+    for ref in overlapping:
+        ws.unmerge_cells(ref)
+
+
+def _master_src_col(dest_col: int, last_col: int) -> int:
+    """Колонки B–H как на 002; хвост I…last как пустая ячейка I–L."""
+    if dest_col <= 8:
+        return dest_col
+    if dest_col == 9:
+        return 9
+    if dest_col == last_col:
+        return 12
+    return 10
+
+
+def _apply_mk_master_footer(
+    dest: Worksheet, src: Worksheet, *, dest_row: int, last_col: int
+) -> None:
+    """Перенести блок «Мастер / Подпись / ФИО / Дата» на последний лист МК."""
+    src_row = _MK2_MASTER_ROW
+    r1, r2 = dest_row, dest_row + 1
+    _unmerge_block(dest, r1, r2, 2, last_col)
+    dest.merge_cells(start_row=r1, start_column=2, end_row=r2, end_column=4)
+    dest.merge_cells(start_row=r1, start_column=6, end_row=r1, end_column=7)
+    dest.merge_cells(start_row=r2, start_column=6, end_row=r2, end_column=7)
+    dest.merge_cells(start_row=r1, start_column=9, end_row=r2, end_column=last_col)
+    for offset in (0, 1):
+        for col in range(2, last_col + 1):
+            src_cell = _origin_cell(src, src_row + offset, _master_src_col(col, last_col))
+            dst_cell = dest.cell(r1 + offset, col)
+            if isinstance(dst_cell, MergedCell):
+                continue
+            _copy_cell_look(src_cell, dst_cell)
+    dest.row_dimensions[r1].height = src.row_dimensions[src_row].height or 17.1
+    dest.row_dimensions[r2].height = src.row_dimensions[src_row + 1].height or 17.1
+    _set(dest, r1, 2, "Мастер", horizontal="right")
+    _set(dest, r1, 5, "Подпись", horizontal="center")
+    _set(dest, r1, 6, "ФИО", horizontal="center")
+    _set(dest, r1, 8, "Дата", horizontal="center")
+    # подписи пустые — только рамки
+    _set(dest, r2, 5, None)
+    _set(dest, r2, 6, None)
+    _set(dest, r2, 8, None)
+
+
 def _clone_sheet_style(src: Worksheet, dst: Worksheet) -> None:
     """Копировать ширины колонок и высоты строк."""
     for letter, dim in src.column_dimensions.items():
@@ -531,7 +607,13 @@ def build_technology_xlsx(
     _fill_mk_ops(ws_mk1, _MK1_SLOTS, steps[:mk1_count], nh_col=15)
     rest_mk = steps[mk1_count:]
     if not rest_mk:
-        wb.remove(ws_mk2)
+        # Блок «Мастер» в шаблоне только на 002. Если маршрут влез в 001 —
+        # переносим подпись вниз первого листа, иначе при удалении 002 она пропадает.
+        if len(steps) < mk1_count:
+            _apply_mk_master_footer(ws_mk1, ws_mk2, dest_row=39, last_col=16)
+            wb.remove(ws_mk2)
+        else:
+            _clear_mk_cont_slots(ws_mk2)
     else:
         _clear_mk_cont_slots(ws_mk2)
         _fill_mk_ops(ws_mk2, _MK2_SLOTS, rest_mk[: len(_MK2_SLOTS)], nh_col=11)

@@ -22,6 +22,11 @@ def _decode_xlsx(data_url: str):
 
 def test_helpers():
     assert _norm_diameter("Ø30 H10") == "‡30 H10"
+    assert _norm_diameter("Ф80х36") == "‡80х36"
+    assert _norm_diameter("Финальный замер всех параметров по чертежу") == (
+        "Финальный замер всех параметров по чертежу"
+    )
+    assert _norm_diameter("Фаска 1х45, выдержать Ф30") == "Фаска 1х45, выдержать ‡30"
     assert _extract_hardness("Сталь 9ХС, HRC 48...52") == "48...52 HRC"
     assert (
         _extract_hardness(
@@ -77,6 +82,14 @@ def test_build_technology_xlsx_fills_template():
                 "transitions": "Установить, выверить и закрепить заготовку\nПодрезать торец как чисто",
                 "final_sizes": "30(-0,05)",
             },
+            {
+                "code": "OP70",
+                "number": 70,
+                "name": "Контроль размеров",
+                "equipment": "вручную",
+                "transitions": "Финальный замер всех параметров по чертежу",
+                "final_sizes": "Готовая деталь",
+            },
         ],
         "heat_treatment": "HRC 48...52",
         "finish_after_heat_treatment": "",
@@ -114,6 +127,10 @@ def test_build_technology_xlsx_fills_template():
     assert mk["B17"].value == 1
     assert "Ленточно" in str(mk["D17"].value)
     assert mk["L9"].value == "0,76"
+    assert mk["B39"].value == "Мастер"
+    assert mk["E39"].value == "Подпись"
+    assert mk["F39"].value == "ФИО"
+    assert mk["H39"].value == "Дата"
 
     tk = wb["003"]
     assert tk["I2"].value == "07-54-319"
@@ -144,6 +161,8 @@ def test_build_technology_xlsx_fills_template():
     assert "Термообработка:" not in dumped
     assert "ИИ-ассистент" not in dumped
     assert "draft v1.0" not in dumped
+    assert "Финальный замер всех параметров по чертежу" in dumped
+    assert "‡инальный" not in dumped
 
 
 def test_build_technology_xlsx_overflow_extra_sheet():
@@ -177,6 +196,8 @@ def test_build_technology_xlsx_overflow_extra_sheet():
     assert "003" in wb.sheetnames
     assert "004" in wb.sheetnames  # длинные переходы не влезают на первый лист ТК
     assert len(wb.sheetnames) >= 4
+    assert wb["002"]["B37"].value == "Мастер"
+    assert "Мастер" not in {wb["001"].cell(r, 2).value for r in range(17, 41)}
 
 
 def test_xlsx_pages_scale_with_route_size():
@@ -205,6 +226,13 @@ def test_xlsx_pages_scale_with_route_size():
     assert "002" not in small.sheetnames
     assert "004" not in small.sheetnames
     assert small.sheetnames == ["001", "003"]
+    assert small["001"]["B39"].value == "Мастер"
+    assert small["001"]["E39"].value == "Подпись"
+
+    eight = _decode_xlsx(build_technology_xlsx("X", _card(8)))
+    assert "002" in eight.sheetnames
+    assert eight["002"]["B37"].value == "Мастер"
+    assert eight["001"]["B39"].value == 8
 
     mk_two = _decode_xlsx(build_technology_xlsx("X", _card(9)))
     assert "002" in mk_two.sheetnames
