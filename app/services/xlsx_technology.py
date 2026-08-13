@@ -8,11 +8,13 @@ from __future__ import annotations
 import base64
 import io
 import re
+from copy import copy
 from pathlib import Path
 from typing import Any
 
 from openpyxl import load_workbook
 from openpyxl.cell.cell import MergedCell
+from openpyxl.styles import Alignment
 from openpyxl.worksheet.worksheet import Worksheet
 
 from app.services.passport_normalize import passport_field_text
@@ -28,9 +30,16 @@ TEMPLATE_PATH = (
 # Слоты операций на маршрутной карте (№ в колонке B, имя в D).
 _MK1_SLOTS = (17, 21, 24, 27, 30, 33, 36, 39)  # лист 001, по 3 строки
 _MK2_SLOTS = (8, 11, 14, 17, 20, 23, 26, 29, 32)  # лист 002 до блока «Мастер»
+_TK1_BODY = (9, 34)  # строки содержания на первом листе ТК
+_TK_CONT_BODY = (5, 36)  # строки содержания на листах-продолжениях ТК
 
+# Диапазон твёрдости: «48...52», «48–52», «56,5»
+_HARDNESS_RANGE = (
+    r"\d+(?:[.,]\d+)?(?:\s*(?:\.\.\.|…|-|–|—)\s*\d+(?:[.,]\d+)?)?"
+)
+# И «HRC 48...52», и «48...52 HRC» (как в UI). Точки без цифр не считаем.
 _HRC_RE = re.compile(
-    r"(HRC\s*[\d.,]+(?:\s*(?:\.\.\.|…|-|–|—)\s*[\d.,]+)?)",
+    rf"(?:HRC\s*(?:{_HARDNESS_RANGE})|(?:{_HARDNESS_RANGE})\s*HRC)\b",
     re.IGNORECASE,
 )
 _NBSP = "\xa0"
@@ -62,17 +71,20 @@ def _material_without_hrc(material: str) -> str:
 
 
 def _extract_hardness(*parts: str) -> str:
+    """Вернуть твёрдость в виде «48...52 HRC» (как в ключевых размерах UI)."""
     for part in parts:
         if not part:
             continue
         m = _HRC_RE.search(part)
-        if m:
-            h = m.group(1).upper().replace("…", "...").replace("–", "...")
-            h = h.replace("—", "...").replace("-", "...")
-            h = re.sub(r"\s+", " ", h)
-            # HRC 48...52
-            h = re.sub(r"HRC\s*", "HRC ", h, flags=re.IGNORECASE)
-            return h
+        if not m:
+            continue
+        raw = m.group(0).upper().replace("…", "...").replace("–", "...").replace("—", "...")
+        raw = re.sub(r"\s*-\s*", "...", raw)
+        raw = re.sub(r"\s+", " ", raw).strip()
+        nums = re.sub(r"\s*HRC\s*", " ", raw, flags=re.IGNORECASE).strip()
+        if not nums:
+            continue
+        return f"{nums} HRC"
     return ""
 
 
@@ -112,7 +124,15 @@ def _wrap_line(text: str, width: int = 95) -> list[str]:
     return out
 
 
-def _set(ws: Worksheet, row: int, col: int, value: Any) -> None:
+def _set(
+    ws: Worksheet,
+    row: int,
+    col: int,
+    value: Any,
+    *,
+    horizontal: str | None = None,
+    bold: bool | None = None,
+) -> None:
     cell = ws.cell(row, col)
     # openpyxl: писать можно только в верхний левый угол merge
     if isinstance(cell, MergedCell):
@@ -121,6 +141,40 @@ def _set(ws: Worksheet, row: int, col: int, value: Any) -> None:
                 cell = ws.cell(merged.min_row, merged.min_col)
                 break
     cell.value = value if value not in ("", None) else None
+    if horizontal:
+        prev = cell.alignment
+        cell.alignment = Alignment(
+            horizontal=horizontal,
+            vertical=prev.vertical or "center",
+            wrap_text=True,
+            textRotation=prev.textRotation,
+            shrinkToFit=False,
+            indent=prev.indent,
+        )
+    if bold is not None:
+        font = copy(cell.font)
+        font.bold = bold
+        cell.font = font
+
+
+def _enable_wrap(ws: Worksheet) -> None:
+    """Перенос текста во всех ячейках листа (чтобы длинные значения не вылезали)."""
+    max_row = ws.max_row or 1
+    max_col = ws.max_column or 1
+    for row in ws.iter_rows(min_row=1, max_row=max_row, max_col=max_col):
+        for cell in row:
+            if isinstance(cell, MergedCell):
+                continue
+            prev = cell.alignment
+            cell.alignment = Alignment(
+                horizontal=prev.horizontal,
+                vertical=prev.vertical or "center",
+                wrap_text=True,
+                textRotation=prev.textRotation,
+                shrinkToFit=False,
+                indent=prev.indent,
+            )
+
 
 def _clear_mk_slots(ws: Worksheet, slots: tuple[int, ...], span: int = 3) -> None:
     for start in slots:
@@ -170,6 +224,8 @@ def _fill_mk_header(
     hardness: str,
 ) -> None:
     _set(ws, 6, 4, part_name or None)  # D6 Деталь
+    _set(ws, 4, 2, None)  # B4 Цех-заказчик — нет данных, не заполняем
+    _set(ws, 6, 2, None)  # B6 значение цеха из шаблона (КлЦ)
     _set(ws, 9, 6, _norm_diameter(blank_dims) or None)  # F9 размер заготовки
     _set(ws, 9, 10, blank_weight or None)  # J9 вес заготовки
     _set(ws, 9, 12, finish_weight or None)  # L9 чистовой вес
@@ -182,7 +238,7 @@ def _fill_mk_ops(
     ws: Worksheet, slots: tuple[int, ...], steps: list[dict], nh_col: int
 ) -> None:
     for start, step in zip(slots, steps):
-        _set(ws, start, 2, step["number"])
+        _set(ws, start, 2, step["number"], horizontal="center")
         line1, line2 = _split_name(step["name"])
         _set(ws, start, 4, line1)
         if line2:
@@ -230,11 +286,13 @@ def _fill_tk_cont_header(
     _set(ws, 3, 6, sheets_total)  # F3 Листов
 
 
-def _tk_lines_for_steps(steps: list[dict]) -> list[tuple[str | None, str, str | None]]:
+def _tk_lines_for_steps(
+    steps: list[dict],
+) -> list[tuple[int | None, str, str | None]]:
     """Строки ТК: (номер|None, текст, оборудование|None)."""
-    lines: list[tuple[str | None, str, str | None]] = []
+    lines: list[tuple[int | None, str, str | None]] = []
     for step in steps:
-        lines.append((str(step["number"]), step["name"], step["equipment"] or None))
+        lines.append((step["number"], step["name"], step["equipment"] or None))
         body_parts: list[str] = []
         if step["transitions"]:
             body_parts.extend(_wrap_line(step["transitions"], 100))
@@ -249,27 +307,65 @@ def _tk_lines_for_steps(steps: list[dict]) -> list[tuple[str | None, str, str | 
 
 def _write_tk_page(
     ws: Worksheet,
-    lines: list[tuple[str | None, str, str | None]],
+    lines: list[tuple[int | None, str, str | None]],
     *,
     start_row: int,
     end_row: int,
     num_col: int,
     text_col: int,
     eq_col: int,
-) -> list[tuple[str | None, str, str | None]]:
+) -> list[tuple[int | None, str, str | None]]:
     """Записать строки в диапазон; вернуть остаток."""
     row = start_row
     idx = 0
     while idx < len(lines) and row <= end_row:
         num, text, eq = lines[idx]
         if num is not None:
-            _set(ws, row, num_col, num)
-        _set(ws, row, text_col, text)
+            _set(ws, row, num_col, num, horizontal="center", bold=False)
+            _set(ws, row, text_col, text, horizontal="left", bold=True)
+        else:
+            _set(ws, row, text_col, text, horizontal="left", bold=False)
         if eq:
-            _set(ws, row, eq_col, eq)
+            _set(ws, row, eq_col, eq, horizontal="center", bold=False)
         idx += 1
         row += 1
     return lines[idx:]
+
+
+def _tk_body_capacity(start_row: int, end_row: int) -> int:
+    return end_row - start_row + 1
+
+
+def _tk_page_count(n_lines: int) -> int:
+    first = _tk_body_capacity(*_TK1_BODY)
+    cont = _tk_body_capacity(*_TK_CONT_BODY)
+    if n_lines <= first:
+        return 1
+    extra = n_lines - first
+    return 1 + (extra + cont - 1) // cont
+
+
+def _continuation_name(wb, prefix: str) -> str:
+    i = 2
+    while f"{prefix}-{i}" in wb.sheetnames:
+        i += 1
+    return f"{prefix}-{i}"
+
+
+def _place_after(wb, ws: Worksheet, after_name: str) -> None:
+    if after_name not in wb.sheetnames:
+        return
+    target = wb.sheetnames.index(after_name) + 1
+    current = wb.sheetnames.index(ws.title)
+    if current != target:
+        wb.move_sheet(ws, offset=target - current)
+
+
+def _clear_mk_cont_slots(ws: Worksheet) -> None:
+    for start in _MK2_SLOTS:
+        for r in range(start, start + 3):
+            for col in (2, 4, 11):
+                _set(ws, r, col, None)
 
 
 def _clone_sheet_style(src: Worksheet, dst: Worksheet) -> None:
@@ -288,6 +384,20 @@ def _clone_sheet_style(src: Worksheet, dst: Worksheet) -> None:
     dst.sheet_format.defaultRowHeight = src.sheet_format.defaultRowHeight
 
 
+def _append_mk_overflow_sheet(
+    wb, template_ws: Worksheet, steps: list[dict], after_name: str
+) -> str:
+    """Доп. лист маршрутной карты, если операции не влезли на 001–002."""
+    name = _continuation_name(wb, "002")
+    ws = wb.copy_worksheet(template_ws)
+    ws.title = name
+    _clone_sheet_style(template_ws, ws)
+    _clear_mk_cont_slots(ws)
+    _fill_mk_ops(ws, _MK2_SLOTS, steps, nh_col=11)
+    _place_after(wb, ws, after_name)
+    return ws.title
+
+
 def _append_tk_overflow_sheet(
     wb,
     template_ws: Worksheet,
@@ -296,18 +406,11 @@ def _append_tk_overflow_sheet(
     part_name: str,
     sheet_no: int,
     sheets_total: int,
-    lines: list[tuple[str | None, str, str | None]],
-) -> list[tuple[str | None, str, str | None]]:
-    """Создать дополнительный лист продолжения ТК по образцу листа 004.
-
-    sheet_no — номер «Лист N» в шапке (3, 4, …);
-    имя листа книги — 005, 006, … (001–004 заняты шаблоном).
-    """
-    wb_name = f"{sheet_no + 2:03d}"
-    while wb_name in wb.sheetnames:
-        # защита от коллизий имён
-        n = int(wb_name) + 1
-        wb_name = f"{n:03d}"
+    lines: list[tuple[int | None, str, str | None]],
+    after_name: str,
+) -> tuple[list[tuple[int | None, str, str | None]], str]:
+    """Создать дополнительный лист продолжения ТК по образцу листа 004."""
+    wb_name = _continuation_name(wb, "004")
     ws = wb.copy_worksheet(template_ws)
     ws.title = wb_name
     _clone_sheet_style(template_ws, ws)
@@ -318,16 +421,20 @@ def _append_tk_overflow_sheet(
         sheet_no=sheet_no,
         sheets_total=sheets_total,
     )
-    _clear_tk_body(ws, 5, 36)
-    return _write_tk_page(
+    _clear_tk_body(ws, *_TK_CONT_BODY)
+    rest = _write_tk_page(
         ws,
         lines,
-        start_row=5,
-        end_row=36,
+        start_row=_TK_CONT_BODY[0],
+        end_row=_TK_CONT_BODY[1],
         num_col=2,
         text_col=3,
         eq_col=5,
     )
+    _place_after(wb, ws, after_name)
+    return rest, ws.title
+
+
 def build_technology_xlsx(
     title: str,
     technology_json: dict | None,
@@ -363,7 +470,6 @@ def build_technology_xlsx(
 
     header = tj.get("header") or {}
     blank = tj.get("blank") or {}
-    meta = tj.get("metadata") or {}
     steps = _route_steps(tj)
     if not steps:
         steps = [
@@ -386,9 +492,9 @@ def build_technology_xlsx(
         # в образце размер и кол-во в одной ячейке: ‡80х36/1шт
         pass
     hardness = _extract_hardness(
-        material,
-        _s(tj.get("heat_treatment")),
         _s(tj.get("key_dimensions")),
+        _s(tj.get("heat_treatment")),
+        material,
         passport_field_text(passport, "material_hardness"),
     )
     finish_weight = passport_field_text(passport, "mass")
@@ -396,12 +502,9 @@ def build_technology_xlsx(
     piece_weight = finish_weight
     qty = "1"
     if blank_dims and "/" not in blank_dims:
-        blank_dims_mk = f"{blank_dims}/1шт" if blank_dims else ""
+        blank_dims_mk = f"{blank_dims}\n/1шт" if blank_dims else ""
     else:
         blank_dims_mk = blank_dims
-
-    author = _s(meta.get("author")) or "ИИ-ассистент"
-    tech_date = _s(meta.get("date"))
 
     if not TEMPLATE_PATH.is_file():
         raise FileNotFoundError(f"Шаблон не найден: {TEMPLATE_PATH}")
@@ -412,13 +515,8 @@ def build_technology_xlsx(
     ws_tk1 = wb["003"]
     ws_tk2 = wb["004"]
 
-    # --- Маршрутная карта ---
+    # --- Маршрутная карта: столько листов, сколько нужно ---
     _clear_mk_slots(ws_mk1, _MK1_SLOTS, span=3)
-    # на листе 002 слоты по 3 строки; очищаем B/D/K
-    for start in _MK2_SLOTS:
-        for r in range(start, start + 3):
-            for col in (2, 4, 11):
-                _set(ws_mk2, r, col, None)
     _fill_mk_header(
         ws_mk1,
         designation=designation,
@@ -429,45 +527,24 @@ def build_technology_xlsx(
         finish_weight=finish_weight,
         hardness=hardness,
     )
-
     mk1_count = len(_MK1_SLOTS)
     _fill_mk_ops(ws_mk1, _MK1_SLOTS, steps[:mk1_count], nh_col=15)
     rest_mk = steps[mk1_count:]
-    _fill_mk_ops(ws_mk2, _MK2_SLOTS, rest_mk[: len(_MK2_SLOTS)], nh_col=11)
-    overflow_mk = rest_mk[len(_MK2_SLOTS) :]
-    if overflow_mk:
-        # Добавляем операции сверх ёмкости в конец листа 002 текстом
-        note_row = 35
-        names = "; ".join(
-            f"{s['number']}. {s['name']}" for s in overflow_mk
-        )
-        _set(ws_mk2, note_row, 4, f"Также: {names}"[:200])
+    if not rest_mk:
+        wb.remove(ws_mk2)
+    else:
+        _clear_mk_cont_slots(ws_mk2)
+        _fill_mk_ops(ws_mk2, _MK2_SLOTS, rest_mk[: len(_MK2_SLOTS)], nh_col=11)
+        rest_mk = rest_mk[len(_MK2_SLOTS) :]
+        last_mk = "002"
+        while rest_mk:
+            chunk = rest_mk[: len(_MK2_SLOTS)]
+            last_mk = _append_mk_overflow_sheet(wb, ws_mk2, chunk, last_mk)
+            rest_mk = rest_mk[len(_MK2_SLOTS) :]
 
-    # --- Технологическая карта: сначала считаем листы ---
-    extra_notes: list[str] = []
-    for label, key in (
-        ("Термообработка", "heat_treatment"),
-        ("Чистовая после ТО", "finish_after_heat_treatment"),
-        ("Контроль размеров", "dimensions_control"),
-        ("Требуется подтверждение", "confirmation_required"),
-        ("Конфликты", "conflicts"),
-    ):
-        val = _s(tj.get(key))
-        if val:
-            extra_notes.append(f"{label}: {val}")
-
+    # --- Технологическая карта: только маршрут, без пустых листов шаблона ---
     tk_lines = _tk_lines_for_steps(steps)
-    for note in extra_notes:
-        for wrapped in _wrap_line(note, 100):
-            tk_lines.append((None, _norm_diameter(wrapped), None))
-
-    # ёмкость: 003 rows 9-34 (26) + 004 rows 5-36 (32) + доп. листы по 32
-    cap1, cap2 = 26, 32
-    remaining_after_two = max(0, len(tk_lines) - cap1 - cap2)
-    extra_sheets = (
-        (remaining_after_two + cap2 - 1) // cap2 if remaining_after_two else 0
-    )
-    sheets_total = 2 + extra_sheets
+    sheets_total = _tk_page_count(len(tk_lines))
 
     _fill_tk_header(
         ws_tk1,
@@ -482,52 +559,60 @@ def build_technology_xlsx(
         sheet_no=1,
         sheets_total=sheets_total,
     )
-    _clear_tk_body(ws_tk1, 9, 34)
+    _clear_tk_body(ws_tk1, *_TK1_BODY)
     rest = _write_tk_page(
         ws_tk1,
         tk_lines,
-        start_row=9,
-        end_row=34,
+        start_row=_TK1_BODY[0],
+        end_row=_TK1_BODY[1],
         num_col=2,
         text_col=3,
         eq_col=14,
     )
 
-    # подпись технолога
-    _set(ws_tk1, 35, 4, author)
-    if tech_date:
-        _set(ws_tk1, 35, 10, tech_date)
+    # Подпись: только подписи полей, без ФИО и даты
+    _set(ws_tk1, 35, 2, "Технолог:")
+    _set(ws_tk1, 35, 4, None)
+    _set(ws_tk1, 35, 9, "Дата:")
+    _set(ws_tk1, 35, 10, None)
 
-    _fill_tk_cont_header(
-        ws_tk2,
-        designation=designation,
-        part_name=part_name,
-        sheet_no=2,
-        sheets_total=sheets_total,
-    )
-    _clear_tk_body(ws_tk2, 5, 36)
-    rest = _write_tk_page(
-        ws_tk2,
-        rest,
-        start_row=5,
-        end_row=36,
-        num_col=2,
-        text_col=3,
-        eq_col=5,
-    )
-
-    sheet_no = 3
-    while rest:
-        rest = _append_tk_overflow_sheet(
-            wb,
+    if not rest:
+        wb.remove(ws_tk2)
+    else:
+        _fill_tk_cont_header(
             ws_tk2,
             designation=designation,
             part_name=part_name,
-            sheet_no=sheet_no,
+            sheet_no=2,
             sheets_total=sheets_total,
-            lines=rest,
         )
-        sheet_no += 1
+        _clear_tk_body(ws_tk2, *_TK_CONT_BODY)
+        rest = _write_tk_page(
+            ws_tk2,
+            rest,
+            start_row=_TK_CONT_BODY[0],
+            end_row=_TK_CONT_BODY[1],
+            num_col=2,
+            text_col=3,
+            eq_col=5,
+        )
+        last_tk = "004"
+        sheet_no = 3
+        while rest:
+            rest, last_tk = _append_tk_overflow_sheet(
+                wb,
+                ws_tk2,
+                designation=designation,
+                part_name=part_name,
+                sheet_no=sheet_no,
+                sheets_total=sheets_total,
+                lines=rest,
+                after_name=last_tk,
+            )
+            sheet_no += 1
+
+    for ws in wb.worksheets:
+        _enable_wrap(ws)
 
     buf = io.BytesIO()
     wb.save(buf)
